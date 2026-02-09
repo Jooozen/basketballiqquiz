@@ -1,36 +1,39 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# バスケIQ診断クイズ
 
-## Getting Started
+戦術ボードで学ぶバスケットボールの動き方。忘却曲線アルゴリズムで効率的に学習できるWebアプリです。
 
-First, run the development server:
+## 特徴
+
+- **戦術ボードアニメーション** - コート上でプレイヤーが動く様子をアニメーションで表示
+- **4択タップ回答** - ボード上の候補スポットをタップして回答
+- **スコアリング & 解説** - 100点/50点/0点の3段階評価と詳しい解説
+- **忘却曲線学習** - SM-2アルゴリズムで復習タイミングを自動調整
+- **スマホ最適化** - 片手操作に最適化した縦画面UI
+
+## カテゴリ
+
+| カテゴリ | 内容 |
+|---|---|
+| スペーシング | 選手間の距離を保つ動き |
+| カッティング | ゴールへのカット動作 |
+| ドライブ合わせ | ドライブ時の味方の動き |
+
+## 技術スタック
+
+- Next.js 16 (App Router)
+- TypeScript
+- Tailwind CSS
+- Framer Motion
+
+## 開発
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+http://localhost:3000 でアプリが起動します。
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 問題データの追加
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+CSV や Google Sheets から問題を読み込むことができます。詳しくは `src/lib/csvLoader.ts` を参照してください。
