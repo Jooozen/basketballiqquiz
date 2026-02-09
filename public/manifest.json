@@ -1,0 +1,22 @@
+{
+  "name": "バスケIQ診断クイズ",
+  "short_name": "バスケIQ",
+  "description": "戦術ボードで学ぶバスケットボールの動き方",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030712",
+  "theme_color": "#030712",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
