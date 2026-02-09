@@ -2,13 +2,11 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { QuizQuestion } from "@/types/quiz";
-import { sampleQuestions } from "@/data/questions";
-import { UserProgress } from "@/types/quiz";
+import { QuizSequence, UserProgress } from "@/types/quiz";
+import { quizSequences } from "@/data/questions";
 import {
   loadProgress,
   saveProgress,
-  getDueQuestions,
   createNewCard,
   calculateNextReview,
   updateStreak,
@@ -22,8 +20,7 @@ type Screen = "home" | "quiz" | "result";
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("home");
   const [progress, setProgress] = useState<UserProgress | null>(null);
-  const [quizQueue, setQuizQueue] = useState<QuizQuestion[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentSequence, setCurrentSequence] = useState<QuizSequence | null>(null);
   const [sessionScores, setSessionScores] = useState<number[]>([]);
 
   // Load progress on mount
@@ -31,52 +28,24 @@ export default function Home() {
     setProgress(loadProgress());
   }, []);
 
-  const allQuestionIds = sampleQuestions.map((q) => q.id);
-
-  const startQuiz = useCallback(
-    (categoryFilter?: string) => {
-      if (!progress) return;
-
-      let questions: QuizQuestion[];
-
-      if (categoryFilter) {
-        questions = sampleQuestions.filter(
-          (q) => q.category === categoryFilter
-        );
-      } else {
-        // Use spaced repetition to determine order
-        const dueIds = getDueQuestions(progress, allQuestionIds);
-        if (dueIds.length > 0) {
-          questions = dueIds
-            .map((id) => sampleQuestions.find((q) => q.id === id)!)
-            .filter(Boolean);
-        } else {
-          // All reviewed, show all
-          questions = [...sampleQuestions];
-        }
-      }
-
-      setQuizQueue(questions);
-      setCurrentIndex(0);
+  const startSequence = useCallback(
+    (sequenceId: string) => {
+      const seq = quizSequences.find((s) => s.id === sequenceId);
+      if (!seq) return;
+      setCurrentSequence(seq);
       setSessionScores([]);
       setScreen("quiz");
     },
-    [progress, allQuestionIds]
+    []
   );
 
-  const handleAnswer = useCallback(
-    (questionId: string, score: number) => {
+  const handleStepAnswer = useCallback(
+    (sequenceId: string, stepIndex: number, score: number) => {
       if (!progress) return;
 
-      const card = progress.cards[questionId] || createNewCard(questionId);
-      const updatedCard = calculateNextReview(card, score);
-
+      // Track per-step answer for overall stats
       let updatedProgress: UserProgress = {
         ...progress,
-        cards: {
-          ...progress.cards,
-          [questionId]: updatedCard,
-        },
         totalAnswered: progress.totalAnswered + 1,
         totalCorrect:
           score === 100 ? progress.totalCorrect + 1 : progress.totalCorrect,
@@ -85,25 +54,42 @@ export default function Home() {
       updatedProgress = updateStreak(updatedProgress);
       setProgress(updatedProgress);
       saveProgress(updatedProgress);
-      setSessionScores((prev) => [...prev, score]);
     },
     [progress]
   );
 
-  const handleNext = useCallback(() => {
-    if (currentIndex + 1 >= quizQueue.length) {
+  const handleComplete = useCallback(
+    (scores: number[]) => {
+      if (!progress || !currentSequence) return;
+
+      setSessionScores(scores);
+
+      // Save sequence-level score using spaced repetition
+      const totalScore = scores.reduce((a, b) => a + b, 0);
+      const card = progress.cards[currentSequence.id] || createNewCard(currentSequence.id);
+      const updatedCard = calculateNextReview(card, totalScore >= scores.length * 70 ? 100 : totalScore >= scores.length * 40 ? 50 : 0);
+
+      const updatedProgress: UserProgress = {
+        ...progress,
+        cards: {
+          ...progress.cards,
+          [currentSequence.id]: updatedCard,
+        },
+      };
+
+      setProgress(updatedProgress);
+      saveProgress(updatedProgress);
       setScreen("result");
-    } else {
-      setCurrentIndex((prev) => prev + 1);
-    }
-  }, [currentIndex, quizQueue.length]);
+    },
+    [progress, currentSequence]
+  );
 
   const handleGoHome = useCallback(() => {
     setScreen("home");
+    setCurrentSequence(null);
   }, []);
 
   const handleRetry = useCallback(() => {
-    setCurrentIndex(0);
     setSessionScores([]);
     setScreen("quiz");
   }, []);
@@ -121,8 +107,6 @@ export default function Home() {
     );
   }
 
-  const dueCount = getDueQuestions(progress, allQuestionIds).length;
-
   return (
     <AnimatePresence mode="wait">
       {screen === "home" && (
@@ -135,33 +119,30 @@ export default function Home() {
         >
           <HomeScreen
             progress={progress}
-            dueCount={dueCount}
-            totalQuestions={sampleQuestions.length}
-            onStartQuiz={() => startQuiz()}
-            onStartCategory={(cat) => startQuiz(cat)}
+            sequences={quizSequences}
+            onStartSequence={startSequence}
           />
         </motion.div>
       )}
 
-      {screen === "quiz" && quizQueue[currentIndex] && (
+      {screen === "quiz" && currentSequence && (
         <motion.div
-          key={`quiz-${quizQueue[currentIndex].id}`}
+          key={`quiz-${currentSequence.id}`}
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: -50 }}
           transition={{ duration: 0.3 }}
         >
           <QuizScreen
-            question={quizQueue[currentIndex]}
-            questionNumber={currentIndex + 1}
-            totalQuestions={quizQueue.length}
-            onAnswer={handleAnswer}
-            onNext={handleNext}
+            sequence={currentSequence}
+            onStepAnswer={handleStepAnswer}
+            onComplete={handleComplete}
+            onGoHome={handleGoHome}
           />
         </motion.div>
       )}
 
-      {screen === "result" && (
+      {screen === "result" && currentSequence && (
         <motion.div
           key="result"
           initial={{ opacity: 0, scale: 0.95 }}
@@ -171,8 +152,8 @@ export default function Home() {
         >
           <ResultScreen
             totalScore={sessionScores.reduce((a, b) => a + b, 0)}
-            maxScore={quizQueue.length * 100}
-            questionCount={quizQueue.length}
+            maxScore={currentSequence.steps.length * 100}
+            questionCount={currentSequence.steps.length}
             correctCount={sessionScores.filter((s) => s === 100).length}
             onGoHome={handleGoHome}
             onRetry={handleRetry}

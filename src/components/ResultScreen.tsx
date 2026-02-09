@@ -100,13 +100,13 @@ export default function ResultScreen({
               <p className="text-2xl font-bold text-green-400">
                 {correctCount}
               </p>
-              <p className="text-[10px] text-gray-500">正解数</p>
+              <p className="text-[10px] text-gray-500">正解ステップ</p>
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-blue-400">
                 {questionCount}
               </p>
-              <p className="text-[10px] text-gray-500">出題数</p>
+              <p className="text-[10px] text-gray-500">全ステップ</p>
             </div>
           </div>
         </motion.div>

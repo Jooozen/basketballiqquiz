@@ -1,12 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { AnswerSpot, QuizQuestion } from "@/types/quiz";
+import { AnswerSpot, QuizStep } from "@/types/quiz";
 
 interface FeedbackPanelProps {
-  question: QuizQuestion;
+  step: QuizStep;
   selectedAnswer: AnswerSpot;
   onNext: () => void;
+  isLastStep: boolean;
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -14,17 +15,15 @@ function ScoreBadge({ score }: { score: number }) {
     100: {
       bg: "bg-green-500",
       text: "100点",
-      emoji: "🎯",
       label: "パーフェクト！",
     },
     50: {
       bg: "bg-yellow-500",
       text: "50点",
-      emoji: "🤔",
       label: "惜しい！",
     },
-    0: { bg: "bg-red-500", text: "0点", emoji: "💪", label: "次は正解！" },
-  }[score] || { bg: "bg-gray-500", text: `${score}点`, emoji: "📝", label: "" };
+    0: { bg: "bg-red-500", text: "0点", label: "次は正解！" },
+  }[score] || { bg: "bg-gray-500", text: `${score}点`, label: "" };
 
   return (
     <motion.div
@@ -39,7 +38,6 @@ function ScoreBadge({ score }: { score: number }) {
         {config.text}
       </div>
       <div className="text-center">
-        <span className="text-2xl">{config.emoji}</span>
         <p className="text-sm font-bold text-gray-200">{config.label}</p>
       </div>
     </motion.div>
@@ -47,9 +45,10 @@ function ScoreBadge({ score }: { score: number }) {
 }
 
 export default function FeedbackPanel({
-  question,
+  step,
   selectedAnswer,
   onNext,
+  isLastStep,
 }: FeedbackPanelProps) {
   const isCorrect = selectedAnswer.score === 100;
 
@@ -69,7 +68,7 @@ export default function FeedbackPanel({
           transition={{ delay: 0.1 }}
         >
           <p className="text-green-400 font-bold text-lg">
-            {question.correctFeedback}
+            {step.feedback}
           </p>
         </motion.div>
       )}
@@ -103,10 +102,10 @@ export default function FeedbackPanel({
         transition={{ delay: 0.6 }}
       >
         <h3 className="text-sm font-bold text-blue-300">
-          📖 この問題のポイント
+          このステップのポイント
         </h3>
         <p className="text-sm text-gray-300 leading-relaxed">
-          {question.conceptExplanation}
+          {step.explanation}
         </p>
       </motion.div>
 
@@ -119,7 +118,7 @@ export default function FeedbackPanel({
         transition={{ delay: 0.8 }}
         whileTap={{ scale: 0.97 }}
       >
-        次の問題へ
+        {isLastStep ? "結果を見る" : "次のステップへ"}
       </motion.button>
     </motion.div>
   );

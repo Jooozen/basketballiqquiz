@@ -3,14 +3,18 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  QuizQuestion,
+  Player,
   Position,
   AnswerSpot,
   Action,
+  QuizStep,
 } from "@/types/quiz";
 
 interface TacticalBoardProps {
-  question: QuizQuestion;
+  players: Player[];
+  startPositions: Record<string, Position>;
+  startBallHolder: string;
+  step: QuizStep;
   phase: "animating" | "answering" | "feedback" | "postAnswer";
   selectedAnswer: AnswerSpot | null;
   onSelectAnswer: (spot: AnswerSpot) => void;
@@ -111,7 +115,7 @@ function CourtLines() {
   );
 }
 
-// Animated ball that moves smoothly between holders
+// Animated ball - bigger size
 function BallMarker({
   position,
   animDuration,
@@ -132,16 +136,16 @@ function BallMarker({
       }}
       style={{
         transform: "translate(-50%, -50%)",
-        marginLeft: "14px",
-        marginTop: "-10px",
+        marginLeft: "12px",
+        marginTop: "-12px",
       }}
     >
-      <div className="w-4 h-4 bg-orange-500 rounded-full border-2 border-orange-700 shadow-lg shadow-orange-500/50" />
+      <div className="w-5 h-5 bg-orange-500 rounded-full border-2 border-orange-700 shadow-lg shadow-orange-500/50" />
     </motion.div>
   );
 }
 
-// Pass line animation (ball traveling from A to B)
+// Pass line animation
 function PassLine({
   from,
   to,
@@ -307,7 +311,10 @@ function AnswerSpotMarker({
 }
 
 export default function TacticalBoard({
-  question,
+  players,
+  startPositions,
+  startBallHolder,
+  step,
   phase,
   selectedAnswer,
   onSelectAnswer,
@@ -315,10 +322,10 @@ export default function TacticalBoard({
   onPostAnswerComplete,
 }: TacticalBoardProps) {
   const [positions, setPositions] = useState<Record<string, Position>>(
-    () => ({ ...question.initialPositions })
+    () => ({ ...startPositions })
   );
   const [ballPosition, setBallPosition] = useState<Position>(
-    () => question.initialPositions[question.initialBallHolder]
+    () => startPositions[startBallHolder] || { x: 50, y: 50 }
   );
   const [ballAnimDuration, setBallAnimDuration] = useState(0);
   const [playerAnimDuration, setPlayerAnimDuration] = useState(0);
@@ -337,38 +344,39 @@ export default function TacticalBoard({
     return t;
   }, []);
 
-  // Reset state when question changes
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       clearAllTimeouts();
       loopRef.current = false;
     };
-  }, [question.id, clearAllTimeouts]);
+  }, [clearAllTimeouts]);
 
-  // Run a sequence of actions and return a promise
+  // Run a sequence of actions
   const runActions = useCallback(
     (
       actions: Action[],
-      startPositions: Record<string, Position>,
-      startBallHolder: string,
+      actionStartPositions: Record<string, Position>,
+      actionStartBallHolder: string,
       onDone: () => void
     ) => {
-      let currentPositions = { ...startPositions };
-      let currentBallHolder = startBallHolder;
+      let currentPositions = { ...actionStartPositions };
+      let currentBallHolder = actionStartBallHolder;
       let totalDelay = 0;
 
       actions.forEach((action) => {
-        const stepDuration = Math.max(...action.steps.map((s) => s.duration));
+        const stepDuration = action.steps.length > 0
+          ? Math.max(...action.steps.map((s) => s.duration))
+          : 0.5;
 
-        // Schedule player movements
         const capturedPositions = { ...currentPositions };
         const capturedBallHolder = currentBallHolder;
 
         addTimeout(() => {
           setPlayerAnimDuration(stepDuration);
           const newPositions = { ...capturedPositions };
-          action.steps.forEach((step) => {
-            newPositions[step.playerId] = step.to;
+          action.steps.forEach((s) => {
+            newPositions[s.playerId] = s.to;
           });
           setPositions(newPositions);
 
@@ -381,12 +389,11 @@ export default function TacticalBoard({
             setBallPosition(dribbleStep.to);
           }
 
-          // Handle ball pass
+          // Handle ball pass (ball moves, passer stays)
           if (action.ballPass) {
             const toPos = newPositions[action.ballPass.to];
             const fromPos = capturedPositions[action.ballPass.from] || capturedPositions[capturedBallHolder];
             setPassLine({ from: fromPos, to: toPos });
-            // Ball travels slightly faster than the step
             const passDelay = Math.min(stepDuration * 0.6, 0.4) * 1000;
             addTimeout(() => {
               setBallAnimDuration(0.35);
@@ -399,8 +406,8 @@ export default function TacticalBoard({
         }, totalDelay);
 
         // Update tracking vars for next action
-        action.steps.forEach((step) => {
-          currentPositions[step.playerId] = step.to;
+        action.steps.forEach((s) => {
+          currentPositions[s.playerId] = s.to;
         });
         if (action.ballPass) {
           currentBallHolder = action.ballPass.to;
@@ -422,7 +429,7 @@ export default function TacticalBoard({
     [addTimeout]
   );
 
-  // Looping animation for the pre-question phase
+  // Looping animation for "animating" phase
   useEffect(() => {
     if (phase !== "animating") {
       loopRef.current = false;
@@ -434,25 +441,30 @@ export default function TacticalBoard({
     const runLoop = () => {
       if (!loopRef.current) return;
 
-      // Reset to initial state
-      setPositions({ ...question.initialPositions });
-      setBallPosition(question.initialPositions[question.initialBallHolder]);
+      // Reset to start state
+      setPositions({ ...startPositions });
+      setBallPosition(startPositions[startBallHolder] || { x: 50, y: 50 });
       setBallAnimDuration(0);
       setPlayerAnimDuration(0);
       setPassLine(null);
 
-      // Small delay before starting
+      if (step.preAnimations.length === 0) {
+        // No pre-animations, immediately go to answering
+        addTimeout(() => {
+          onAnimationComplete();
+        }, 600);
+        return;
+      }
+
       addTimeout(() => {
         if (!loopRef.current) return;
 
         runActions(
-          question.actions,
-          question.initialPositions,
-          question.initialBallHolder,
+          step.preAnimations,
+          startPositions,
+          startBallHolder,
           () => {
             onAnimationComplete();
-            // After showing, wait 1.5s then loop if still animating
-            // (onAnimationComplete switches to "answering" which will loop again)
           }
         );
       }, 600);
@@ -465,7 +477,7 @@ export default function TacticalBoard({
       clearAllTimeouts();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question.id]);
+  }, [phase]);
 
   // Answering phase: keep looping the animation in background
   useEffect(() => {
@@ -477,25 +489,34 @@ export default function TacticalBoard({
     const runAnswerLoop = () => {
       if (!loopRef.current) return;
 
-      // Reset to initial state
-      setPositions({ ...question.initialPositions });
-      setBallPosition(question.initialPositions[question.initialBallHolder]);
+      // Reset to start state
+      setPositions({ ...startPositions });
+      setBallPosition(startPositions[startBallHolder] || { x: 50, y: 50 });
       setBallAnimDuration(0);
       setPlayerAnimDuration(0);
       setPassLine(null);
 
+      if (step.preAnimations.length === 0) {
+        // No pre-animations, just wait and loop
+        loopTimeout = setTimeout(() => {
+          if (loopRef.current) runAnswerLoop();
+        }, 3000);
+        timeoutsRef.current.push(loopTimeout);
+        return;
+      }
+
       loopTimeout = setTimeout(() => {
         if (!loopRef.current) return;
 
-        const { totalDuration } = runActions(
-          question.actions,
-          question.initialPositions,
-          question.initialBallHolder,
+        runActions(
+          step.preAnimations,
+          startPositions,
+          startBallHolder,
           () => {
-            // Wait 1.5s at the end state, then restart
             loopTimeout = setTimeout(() => {
               if (loopRef.current) runAnswerLoop();
             }, 1500);
+            timeoutsRef.current.push(loopTimeout);
           }
         );
       }, 400);
@@ -510,21 +531,25 @@ export default function TacticalBoard({
       if (loopTimeout) clearTimeout(loopTimeout);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, question.id]);
+  }, [phase]);
 
   // Post-answer animation
   useEffect(() => {
     if (phase !== "postAnswer" || !selectedAnswer) return;
 
-    const postActions = question.postAnswerActions?.[selectedAnswer.id];
+    const postActions = step.postAnswerActions?.[selectedAnswer.id];
     if (!postActions || postActions.length === 0) {
       onPostAnswerComplete();
       return;
     }
 
-    // Figure out current ball holder from end of main animation
-    let endBallHolder = question.initialBallHolder;
-    for (const action of question.actions) {
+    // Compute end state of pre-animations
+    let endBallHolder = startBallHolder;
+    const endPositions = { ...startPositions };
+    for (const action of step.preAnimations) {
+      action.steps.forEach((s) => {
+        endPositions[s.playerId] = s.to;
+      });
       if (action.ballPass) {
         endBallHolder = action.ballPass.to;
       } else {
@@ -535,17 +560,9 @@ export default function TacticalBoard({
       }
     }
 
-    // Get end positions after main animation
-    const endPositions = { ...question.initialPositions };
-    for (const action of question.actions) {
-      action.steps.forEach((step) => {
-        endPositions[step.playerId] = step.to;
-      });
-    }
-
-    // Set to end state of main animation first
+    // Set to end state of pre-animations
     setPositions(endPositions);
-    setBallPosition(endPositions[endBallHolder]);
+    setBallPosition(endPositions[endBallHolder] || { x: 50, y: 50 });
     setBallAnimDuration(0);
     setPlayerAnimDuration(0);
 
@@ -573,11 +590,11 @@ export default function TacticalBoard({
           <PassLine from={passLine.from} to={passLine.to} active={true} />
         )}
 
-        {/* Ball marker (separate from players, moves smoothly) */}
+        {/* Ball marker */}
         <BallMarker position={ballPosition} animDuration={ballAnimDuration} />
 
         {/* Player markers */}
-        {question.players.map((player) => {
+        {players.map((player) => {
           const pos = positions[player.id] || { x: 0, y: 0 };
           return (
             <PlayerMarker
@@ -585,9 +602,9 @@ export default function TacticalBoard({
               label={player.label}
               position={pos}
               isOffense={player.isOffense}
-              isTarget={player.id === question.targetPlayerId}
+              isTarget={player.id === step.targetPlayerId}
               isHighlighted={
-                phase === "answering" && player.id === question.targetPlayerId
+                phase === "answering" && player.id === step.targetPlayerId
               }
               animDuration={playerAnimDuration}
             />
@@ -597,7 +614,7 @@ export default function TacticalBoard({
         {/* Answer spots */}
         <AnimatePresence>
           {showSpots &&
-            question.answerSpots.map((spot) => (
+            step.answerSpots.map((spot) => (
               <AnswerSpotMarker
                 key={spot.id}
                 spot={spot}
@@ -629,7 +646,7 @@ export default function TacticalBoard({
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
             >
-              {question.targetPlayerLabel}番はどこに動く？タップ！
+              {step.targetPlayerLabel}番はどこに動く？タップ！
             </motion.div>
           )}
           {phase === "postAnswer" && (

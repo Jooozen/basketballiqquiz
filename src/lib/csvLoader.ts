@@ -1,39 +1,32 @@
 import Papa from "papaparse";
-import { QuizQuestion, Player, Position, Action, AnswerSpot } from "@/types/quiz";
+import { QuizSequence, Player, Position, QuizStep } from "@/types/quiz";
 
-interface CSVRow {
+interface CSVSequenceRow {
   id: string;
-  category: string;
   title: string;
+  subtitle: string;
   description: string;
   difficulty: string;
-  // Players as JSON strings
   players_json: string;
   initial_positions_json: string;
   initial_ball_holder: string;
-  actions_json: string;
-  target_player_id: string;
-  target_player_label: string;
-  answer_spots_json: string;
-  post_answer_actions_json?: string;
-  correct_feedback: string;
-  concept_explanation: string;
+  steps_json: string;
 }
 
-export async function loadQuestionsFromCSV(
+export async function loadSequencesFromCSV(
   url: string
-): Promise<QuizQuestion[]> {
+): Promise<QuizSequence[]> {
   const response = await fetch(url);
   const csvText = await response.text();
 
   return new Promise((resolve, reject) => {
-    Papa.parse<CSVRow>(csvText, {
+    Papa.parse<CSVSequenceRow>(csvText, {
       header: true,
       skipEmptyLines: true,
       complete: (results) => {
         try {
-          const questions = results.data.map(rowToQuestion);
-          resolve(questions);
+          const sequences = results.data.map(rowToSequence);
+          resolve(sequences);
         } catch (err) {
           reject(err);
         }
@@ -43,11 +36,11 @@ export async function loadQuestionsFromCSV(
   });
 }
 
-function rowToQuestion(row: CSVRow): QuizQuestion {
+function rowToSequence(row: CSVSequenceRow): QuizSequence {
   return {
     id: row.id,
-    category: row.category as QuizQuestion["category"],
     title: row.title,
+    subtitle: row.subtitle,
     description: row.description,
     players: JSON.parse(row.players_json) as Player[],
     initialPositions: JSON.parse(row.initial_positions_json) as Record<
@@ -55,15 +48,7 @@ function rowToQuestion(row: CSVRow): QuizQuestion {
       Position
     >,
     initialBallHolder: row.initial_ball_holder,
-    actions: JSON.parse(row.actions_json) as Action[],
-    targetPlayerId: row.target_player_id,
-    targetPlayerLabel: row.target_player_label,
-    answerSpots: JSON.parse(row.answer_spots_json) as AnswerSpot[],
-    postAnswerActions: row.post_answer_actions_json
-      ? JSON.parse(row.post_answer_actions_json)
-      : undefined,
-    correctFeedback: row.correct_feedback,
-    conceptExplanation: row.concept_explanation,
+    steps: JSON.parse(row.steps_json) as QuizStep[],
     difficulty: parseInt(row.difficulty) as 1 | 2 | 3,
   };
 }
@@ -72,7 +57,7 @@ function rowToQuestion(row: CSVRow): QuizQuestion {
 export async function loadFromGoogleSheets(
   sheetId: string,
   gid: string = "0"
-): Promise<QuizQuestion[]> {
+): Promise<QuizSequence[]> {
   const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
-  return loadQuestionsFromCSV(url);
+  return loadSequencesFromCSV(url);
 }

@@ -1,46 +1,24 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { UserProgress } from "@/types/quiz";
+import { UserProgress, QuizSequence } from "@/types/quiz";
 
 interface HomeScreenProps {
   progress: UserProgress;
-  dueCount: number;
-  totalQuestions: number;
-  onStartQuiz: () => void;
-  onStartCategory: (category: string) => void;
+  sequences: QuizSequence[];
+  onStartSequence: (sequenceId: string) => void;
 }
 
-const categories = [
-  {
-    id: "spacing",
-    label: "スペーシング",
-    icon: "↔️",
-    desc: "選手間の距離を保つ",
-    color: "from-emerald-600 to-emerald-800",
-  },
-  {
-    id: "cutting",
-    label: "カッティング",
-    icon: "✂️",
-    desc: "ゴールへのカット動作",
-    color: "from-purple-600 to-purple-800",
-  },
-  {
-    id: "drive-kick",
-    label: "ドライブ合わせ",
-    icon: "🏀",
-    desc: "ドライブ時の味方の動き",
-    color: "from-orange-600 to-orange-800",
-  },
-];
+const difficultyLabels: Record<number, { label: string; color: string }> = {
+  1: { label: "初級", color: "bg-green-500/20 text-green-400 border-green-500/40" },
+  2: { label: "中級", color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/40" },
+  3: { label: "上級", color: "bg-red-500/20 text-red-400 border-red-500/40" },
+};
 
 export default function HomeScreen({
   progress,
-  dueCount,
-  totalQuestions,
-  onStartQuiz,
-  onStartCategory,
+  sequences,
+  onStartSequence,
 }: HomeScreenProps) {
   const accuracy =
     progress.totalAnswered > 0
@@ -114,57 +92,54 @@ export default function HomeScreen({
         </motion.div>
       </div>
 
-      {/* Start quiz button */}
-      <div className="px-4 mt-5">
-        <motion.button
-          className="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold py-4 rounded-2xl text-lg shadow-lg shadow-blue-600/20 transition-colors"
-          onClick={onStartQuiz}
-          whileTap={{ scale: 0.97 }}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          {dueCount > 0 ? (
-            <>
-              復習する
-              <span className="ml-2 bg-blue-500 px-2 py-0.5 rounded-full text-sm">
-                {dueCount}問
-              </span>
-            </>
-          ) : progress.totalAnswered > 0 ? (
-            "もう一度チャレンジ"
-          ) : (
-            "クイズを始める"
-          )}
-        </motion.button>
-        <p className="text-center text-xs text-gray-600 mt-2">
-          全{totalQuestions}問から出題
-        </p>
-      </div>
-
-      {/* Category selection */}
+      {/* Sequence cards */}
       <div className="px-4 mt-6 flex-1">
         <h2 className="text-sm font-bold text-gray-400 mb-3">
-          カテゴリ別に学習
+          プレーを選んで挑戦
         </h2>
-        <div className="space-y-2">
-          {categories.map((cat, i) => (
-            <motion.button
-              key={cat.id}
-              className={`w-full flex items-center gap-3 bg-gradient-to-r ${cat.color} rounded-xl p-4 text-left transition-transform active:scale-[0.98]`}
-              onClick={() => onStartCategory(cat.id)}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.4 + i * 0.1 }}
-              whileTap={{ scale: 0.97 }}
-            >
-              <span className="text-2xl">{cat.icon}</span>
-              <div>
-                <p className="font-bold text-sm">{cat.label}</p>
-                <p className="text-[10px] text-gray-300">{cat.desc}</p>
-              </div>
-            </motion.button>
-          ))}
+        <div className="space-y-3">
+          {sequences.map((seq, i) => {
+            const diff = difficultyLabels[seq.difficulty] || difficultyLabels[1];
+            const bestScore = progress.cards[seq.id]?.lastScore;
+            return (
+              <motion.button
+                key={seq.id}
+                className="w-full bg-gray-900 border border-gray-800 rounded-xl p-4 text-left transition-transform active:scale-[0.98]"
+                onClick={() => onStartSequence(seq.id)}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 + i * 0.1 }}
+                whileTap={{ scale: 0.97 }}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        className={`text-[10px] px-2 py-0.5 rounded-full border ${diff.color}`}
+                      >
+                        {diff.label}
+                      </span>
+                      <span className="text-[10px] text-gray-500">
+                        {seq.steps.length}ステップ
+                      </span>
+                    </div>
+                    <p className="font-bold text-sm">{seq.title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      {seq.subtitle}
+                    </p>
+                  </div>
+                  {bestScore !== undefined && (
+                    <div className="text-right ml-3">
+                      <p className="text-lg font-bold text-blue-400">
+                        {bestScore}
+                      </p>
+                      <p className="text-[9px] text-gray-500">最高点</p>
+                    </div>
+                  )}
+                </div>
+              </motion.button>
+            );
+          })}
         </div>
       </div>
 
