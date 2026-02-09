@@ -33,9 +33,9 @@ export default function QuizScreen({
   onAnswer,
   onNext,
 }: QuizScreenProps) {
-  const [phase, setPhase] = useState<"animating" | "answering" | "feedback">(
-    "animating"
-  );
+  const [phase, setPhase] = useState<
+    "animating" | "answering" | "feedback" | "postAnswer"
+  >("animating");
   const [selectedAnswer, setSelectedAnswer] = useState<AnswerSpot | null>(null);
 
   const handleAnimationComplete = useCallback(() => {
@@ -46,11 +46,15 @@ export default function QuizScreen({
     (spot: AnswerSpot) => {
       if (phase !== "answering") return;
       setSelectedAnswer(spot);
-      setPhase("feedback");
+      setPhase("postAnswer");
       onAnswer(question.id, spot.score);
     },
     [phase, onAnswer, question.id]
   );
+
+  const handlePostAnswerComplete = useCallback(() => {
+    setPhase("feedback");
+  }, []);
 
   const handleNext = useCallback(() => {
     setPhase("animating");
@@ -108,6 +112,7 @@ export default function QuizScreen({
           selectedAnswer={selectedAnswer}
           onSelectAnswer={handleSelectAnswer}
           onAnimationComplete={handleAnimationComplete}
+          onPostAnswerComplete={handlePostAnswerComplete}
         />
       </div>
 
@@ -121,6 +126,26 @@ export default function QuizScreen({
               selectedAnswer={selectedAnswer}
               onNext={handleNext}
             />
+          )}
+          {phase === "postAnswer" && selectedAnswer && (
+            <motion.div
+              key="post-answer"
+              className="text-center py-4"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+            >
+              <p className="text-sm text-blue-400 font-bold mb-1">
+                {selectedAnswer.score === 100
+                  ? question.correctFeedback
+                  : selectedAnswer.score === 50
+                  ? "惜しい！"
+                  : "残念..."}
+              </p>
+              <p className="text-xs text-gray-400">
+                その後の展開を見てみましょう...
+              </p>
+            </motion.div>
           )}
           {phase === "answering" && (
             <motion.div

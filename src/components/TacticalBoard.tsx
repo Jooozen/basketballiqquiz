@@ -1,22 +1,24 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   QuizQuestion,
   Position,
   AnswerSpot,
-  AnimationStep,
+  Action,
 } from "@/types/quiz";
 
 interface TacticalBoardProps {
   question: QuizQuestion;
-  phase: "animating" | "answering" | "feedback";
+  phase: "animating" | "answering" | "feedback" | "postAnswer";
   selectedAnswer: AnswerSpot | null;
   onSelectAnswer: (spot: AnswerSpot) => void;
   onAnimationComplete: () => void;
+  onPostAnswerComplete: () => void;
 }
 
+// Court lines with RIM AT TOP
 function CourtLines() {
   return (
     <svg
@@ -35,18 +37,43 @@ function CourtLines() {
         strokeWidth="0.5"
         rx="1"
       />
-      {/* Three point arc */}
-      <path
-        d="M 15 85 L 15 55 Q 15 20 50 15 Q 85 20 85 55 L 85 85"
+      {/* Basket at TOP */}
+      <circle
+        cx="50"
+        cy="12"
+        r="1.5"
         fill="none"
         stroke="#5a3e28"
         strokeWidth="0.4"
-        strokeDasharray="1.5,0.8"
       />
-      {/* Paint / key area */}
+      <line
+        x1="45"
+        y1="10"
+        x2="55"
+        y2="10"
+        stroke="#5a3e28"
+        strokeWidth="0.5"
+      />
+      {/* Backboard */}
+      <line
+        x1="43"
+        y1="8"
+        x2="57"
+        y2="8"
+        stroke="#5a3e28"
+        strokeWidth="0.6"
+      />
+      {/* Restricted area at top */}
+      <path
+        d="M 42 10 Q 42 22 50 25 Q 58 22 58 10"
+        fill="none"
+        stroke="#5a3e28"
+        strokeWidth="0.3"
+      />
+      {/* Paint / key area at top */}
       <rect
         x="32"
-        y="55"
+        y="5"
         width="36"
         height="40"
         fill="none"
@@ -56,43 +83,27 @@ function CourtLines() {
       {/* Free throw circle */}
       <circle
         cx="50"
-        cy="55"
+        cy="45"
         r="12"
         fill="none"
         stroke="#5a3e28"
         strokeWidth="0.3"
         strokeDasharray="1.5,0.8"
       />
-      {/* Basket */}
-      <circle
-        cx="50"
-        cy="88"
-        r="1.5"
-        fill="none"
-        stroke="#5a3e28"
-        strokeWidth="0.4"
-      />
-      <line
-        x1="45"
-        y1="90"
-        x2="55"
-        y2="90"
-        stroke="#5a3e28"
-        strokeWidth="0.4"
-      />
-      {/* Restricted area */}
+      {/* Three point arc - opens downward */}
       <path
-        d="M 42 90 Q 42 78 50 75 Q 58 78 58 90"
+        d="M 15 15 L 15 45 Q 15 80 50 85 Q 85 80 85 45 L 85 15"
         fill="none"
         stroke="#5a3e28"
-        strokeWidth="0.3"
+        strokeWidth="0.4"
+        strokeDasharray="1.5,0.8"
       />
-      {/* Center line indicator at top */}
+      {/* Half-court line at bottom */}
       <line
         x1="5"
-        y1="5"
+        y1="95"
         x2="95"
-        y2="5"
+        y2="95"
         stroke="#5a3e28"
         strokeWidth="0.5"
       />
@@ -100,49 +111,79 @@ function CourtLines() {
   );
 }
 
-function PassArrow({
+// Animated ball that moves smoothly between holders
+function BallMarker({
+  position,
+  animDuration,
+}: {
+  position: Position;
+  animDuration: number;
+}) {
+  return (
+    <motion.div
+      className="absolute z-25 pointer-events-none"
+      animate={{
+        left: `${position.x}%`,
+        top: `${position.y}%`,
+      }}
+      transition={{
+        duration: animDuration,
+        ease: "easeInOut",
+      }}
+      style={{
+        transform: "translate(-50%, -50%)",
+        marginLeft: "14px",
+        marginTop: "-10px",
+      }}
+    >
+      <div className="w-4 h-4 bg-orange-500 rounded-full border-2 border-orange-700 shadow-lg shadow-orange-500/50" />
+    </motion.div>
+  );
+}
+
+// Pass line animation (ball traveling from A to B)
+function PassLine({
   from,
   to,
-  style,
+  active,
 }: {
   from: Position;
   to: Position;
-  style?: string;
+  active: boolean;
 }) {
-  const dashArray = style === "dashed" ? "2,2" : undefined;
+  if (!active) return null;
   return (
-    <motion.svg
+    <svg
       viewBox="0 0 100 100"
-      className="absolute inset-0 w-full h-full pointer-events-none z-10"
+      className="absolute inset-0 w-full h-full pointer-events-none z-15"
       preserveAspectRatio="none"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
     >
       <defs>
         <marker
-          id="arrowhead"
-          markerWidth="6"
+          id="passArrow"
+          markerWidth="5"
           markerHeight="4"
-          refX="5"
+          refX="4"
           refY="2"
           orient="auto"
         >
-          <polygon points="0 0, 6 2, 0 4" fill="#FFD700" />
+          <polygon points="0 0, 5 2, 0 4" fill="#FFD700" opacity="0.8" />
         </marker>
       </defs>
-      <line
+      <motion.line
         x1={from.x}
         y1={from.y}
-        x2={to.x}
-        y2={to.y}
+        x2={from.x}
+        y2={from.y}
+        animate={{ x2: to.x, y2: to.y }}
+        transition={{ duration: 0.4, ease: "easeOut" }}
         stroke="#FFD700"
-        strokeWidth="0.6"
-        strokeDasharray={dashArray}
-        markerEnd="url(#arrowhead)"
+        strokeWidth="0.5"
+        strokeDasharray="2,1"
+        markerEnd="url(#passArrow)"
+        opacity="0.7"
       />
-    </motion.svg>
+    </svg>
   );
 }
 
@@ -151,17 +192,15 @@ function PlayerMarker({
   position,
   isOffense,
   isTarget,
-  hasBall,
   isHighlighted,
-  animating,
+  animDuration,
 }: {
   label: string;
   position: Position;
   isOffense: boolean;
   isTarget: boolean;
-  hasBall: boolean;
   isHighlighted: boolean;
-  animating: boolean;
+  animDuration: number;
 }) {
   const size = isOffense ? "w-9 h-9" : "w-8 h-8";
   const bgColor = isOffense
@@ -178,35 +217,26 @@ function PlayerMarker({
   return (
     <motion.div
       className={`absolute ${size} rounded-full ${bgColor} border-2 flex items-center justify-center font-bold text-sm ${textColor} shadow-lg`}
-      style={{
-        left: `${position.x}%`,
-        top: `${position.y}%`,
-        transform: "translate(-50%, -50%)",
-        zIndex: isTarget ? 20 : 10,
-      }}
       animate={{
         left: `${position.x}%`,
         top: `${position.y}%`,
         scale: isHighlighted ? [1, 1.15, 1] : 1,
       }}
       transition={{
-        left: { duration: animating ? 0.8 : 0, ease: "easeInOut" },
-        top: { duration: animating ? 0.8 : 0, ease: "easeInOut" },
+        left: { duration: animDuration, ease: "easeInOut" },
+        top: { duration: animDuration, ease: "easeInOut" },
         scale: {
           duration: 0.8,
           repeat: isHighlighted ? Infinity : 0,
           ease: "easeInOut",
         },
       }}
+      style={{
+        transform: "translate(-50%, -50%)",
+        zIndex: isTarget ? 20 : 10,
+      }}
     >
       {label}
-      {hasBall && (
-        <motion.div
-          className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-orange-500 rounded-full border border-orange-700"
-          animate={{ scale: [1, 1.2, 1] }}
-          transition={{ duration: 1, repeat: Infinity }}
-        />
-      )}
     </motion.div>
   );
 }
@@ -218,12 +248,12 @@ function AnswerSpotMarker({
   onTap,
 }: {
   spot: AnswerSpot;
-  phase: "answering" | "feedback";
+  phase: "answering" | "feedback" | "postAnswer";
   isSelected: boolean;
   onTap: () => void;
 }) {
   const getColor = () => {
-    if (phase === "feedback") {
+    if (phase === "feedback" || phase === "postAnswer") {
       if (spot.score === 100) return "bg-green-500 border-green-300";
       if (spot.score === 50) return "bg-yellow-500 border-yellow-300";
       return "bg-red-500 border-red-300";
@@ -233,7 +263,7 @@ function AnswerSpotMarker({
   };
 
   const getScale = () => {
-    if (phase === "feedback" && spot.score === 100) return [1, 1.3, 1];
+    if ((phase === "feedback" || phase === "postAnswer") && spot.score === 100) return [1, 1.3, 1];
     if (isSelected) return 1.2;
     return 1;
   };
@@ -249,21 +279,21 @@ function AnswerSpotMarker({
       initial={{ scale: 0, opacity: 0 }}
       animate={{
         scale: getScale(),
-        opacity: 1,
+        opacity: phase === "postAnswer" && !isSelected ? 0 : 1,
       }}
       transition={{
         scale: {
-          duration: phase === "feedback" && spot.score === 100 ? 0.6 : 0.3,
+          duration: (phase === "feedback" || phase === "postAnswer") && spot.score === 100 ? 0.6 : 0.3,
           repeat: phase === "feedback" && spot.score === 100 ? 2 : 0,
         },
         opacity: { duration: 0.3 },
       }}
       whileTap={{ scale: 0.9 }}
       onClick={onTap}
-      disabled={phase === "feedback"}
+      disabled={phase !== "answering"}
       aria-label={`回答スポット`}
     >
-      {phase === "feedback" ? (
+      {phase === "feedback" || phase === "postAnswer" ? (
         <span className="text-white text-xs font-bold">{spot.score}</span>
       ) : (
         <motion.div
@@ -282,121 +312,269 @@ export default function TacticalBoard({
   selectedAnswer,
   onSelectAnswer,
   onAnimationComplete,
+  onPostAnswerComplete,
 }: TacticalBoardProps) {
   const [positions, setPositions] = useState<Record<string, Position>>(
-    () => question.initialPositions
+    () => ({ ...question.initialPositions })
   );
-  const [currentAction, setCurrentAction] = useState(0);
-  const [animating, setAnimating] = useState(false);
-  const [ballHolder, setBallHolder] = useState<string | null>(null);
-  const [activeArrows, setActiveArrows] = useState<
-    { from: Position; to: Position; style?: string }[]
-  >([]);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [ballPosition, setBallPosition] = useState<Position>(
+    () => question.initialPositions[question.initialBallHolder]
+  );
+  const [ballAnimDuration, setBallAnimDuration] = useState(0);
+  const [playerAnimDuration, setPlayerAnimDuration] = useState(0);
+  const [passLine, setPassLine] = useState<{ from: Position; to: Position } | null>(null);
+  const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const loopRef = useRef(true);
 
-  // Find initial ball holder
+  const clearAllTimeouts = useCallback(() => {
+    timeoutsRef.current.forEach(clearTimeout);
+    timeoutsRef.current = [];
+  }, []);
+
+  const addTimeout = useCallback((fn: () => void, ms: number) => {
+    const t = setTimeout(fn, ms);
+    timeoutsRef.current.push(t);
+    return t;
+  }, []);
+
+  // Reset state when question changes
   useEffect(() => {
-    for (const action of question.actions) {
-      for (const step of action.steps) {
-        if (step.hasBall) {
-          setBallHolder(step.playerId);
-          return;
-        }
-      }
-    }
-  }, [question]);
+    return () => {
+      clearAllTimeouts();
+      loopRef.current = false;
+    };
+  }, [question.id, clearAllTimeouts]);
 
-  // Run animation sequence
-  useEffect(() => {
-    if (phase !== "animating") return;
+  // Run a sequence of actions and return a promise
+  const runActions = useCallback(
+    (
+      actions: Action[],
+      startPositions: Record<string, Position>,
+      startBallHolder: string,
+      onDone: () => void
+    ) => {
+      let currentPositions = { ...startPositions };
+      let currentBallHolder = startBallHolder;
+      let totalDelay = 0;
 
-    const runAction = (actionIndex: number) => {
-      if (actionIndex >= question.actions.length) {
-        onAnimationComplete();
-        return;
-      }
+      actions.forEach((action) => {
+        const stepDuration = Math.max(...action.steps.map((s) => s.duration));
 
-      const action = question.actions[actionIndex];
-      setAnimating(true);
+        // Schedule player movements
+        const capturedPositions = { ...currentPositions };
+        const capturedBallHolder = currentBallHolder;
 
-      // Collect arrows
-      const arrows: { from: Position; to: Position; style?: string }[] = [];
-      action.steps.forEach((step) => {
-        if (step.showArrow && step.type === "pass") {
-          const targetStep = action.steps.find(
-            (s) => s.playerId !== step.playerId && !s.hasBall
+        addTimeout(() => {
+          setPlayerAnimDuration(stepDuration);
+          const newPositions = { ...capturedPositions };
+          action.steps.forEach((step) => {
+            newPositions[step.playerId] = step.to;
+          });
+          setPositions(newPositions);
+
+          // Handle ball: dribble moves with player
+          const dribbleStep = action.steps.find(
+            (s) => s.hasBall && (s.type === "dribble" || s.type === "cut")
           );
-          if (targetStep) {
-            arrows.push({
-              from: step.from,
-              to: targetStep.from,
-              style: step.arrowStyle,
-            });
+          if (dribbleStep) {
+            setBallAnimDuration(stepDuration);
+            setBallPosition(dribbleStep.to);
+          }
+
+          // Handle ball pass
+          if (action.ballPass) {
+            const toPos = newPositions[action.ballPass.to];
+            const fromPos = capturedPositions[action.ballPass.from] || capturedPositions[capturedBallHolder];
+            setPassLine({ from: fromPos, to: toPos });
+            // Ball travels slightly faster than the step
+            const passDelay = Math.min(stepDuration * 0.6, 0.4) * 1000;
+            addTimeout(() => {
+              setBallAnimDuration(0.35);
+              setBallPosition(toPos);
+            }, passDelay);
+            addTimeout(() => {
+              setPassLine(null);
+            }, stepDuration * 1000);
+          }
+        }, totalDelay);
+
+        // Update tracking vars for next action
+        action.steps.forEach((step) => {
+          currentPositions[step.playerId] = step.to;
+        });
+        if (action.ballPass) {
+          currentBallHolder = action.ballPass.to;
+        } else {
+          const ballStep = action.steps.find(
+            (s) => s.hasBall && (s.type === "dribble" || s.type === "cut")
+          );
+          if (ballStep) {
+            currentBallHolder = ballStep.playerId;
           }
         }
-        if (step.showArrow && step.type === "dribble") {
-          arrows.push({
-            from: step.from,
-            to: step.to,
-            style: step.arrowStyle,
-          });
-        }
+
+        totalDelay += stepDuration * 1000 + (action.pauseAfter || 0) * 1000;
       });
-      setActiveArrows(arrows);
 
-      // Update positions
-      const newPositions = { ...positions };
-      action.steps.forEach((step: AnimationStep) => {
-        newPositions[step.playerId] = step.to;
-        if (step.hasBall) {
-          setBallHolder(step.playerId);
-        }
-      });
-      setPositions(newPositions);
+      addTimeout(onDone, totalDelay);
+      return { finalPositions: currentPositions, finalBallHolder: currentBallHolder, totalDuration: totalDelay };
+    },
+    [addTimeout]
+  );
 
-      // Wait for animation + pause, then next action
-      const maxDuration = Math.max(...action.steps.map((s) => s.duration));
-      const pauseTime = action.pauseAfter || 0;
+  // Looping animation for the pre-question phase
+  useEffect(() => {
+    if (phase !== "animating") {
+      loopRef.current = false;
+      return;
+    }
 
-      timeoutRef.current = setTimeout(() => {
-        setAnimating(false);
-        setActiveArrows([]);
-        setCurrentAction(actionIndex + 1);
-        timeoutRef.current = setTimeout(() => {
-          runAction(actionIndex + 1);
-        }, pauseTime * 1000);
-      }, maxDuration * 1000);
+    loopRef.current = true;
+
+    const runLoop = () => {
+      if (!loopRef.current) return;
+
+      // Reset to initial state
+      setPositions({ ...question.initialPositions });
+      setBallPosition(question.initialPositions[question.initialBallHolder]);
+      setBallAnimDuration(0);
+      setPlayerAnimDuration(0);
+      setPassLine(null);
+
+      // Small delay before starting
+      addTimeout(() => {
+        if (!loopRef.current) return;
+
+        runActions(
+          question.actions,
+          question.initialPositions,
+          question.initialBallHolder,
+          () => {
+            onAnimationComplete();
+            // After showing, wait 1.5s then loop if still animating
+            // (onAnimationComplete switches to "answering" which will loop again)
+          }
+        );
+      }, 600);
     };
 
-    // Small delay before starting
-    timeoutRef.current = setTimeout(() => {
-      runAction(0);
-    }, 800);
+    runLoop();
 
     return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      loopRef.current = false;
+      clearAllTimeouts();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
+  }, [phase, question.id]);
+
+  // Answering phase: keep looping the animation in background
+  useEffect(() => {
+    if (phase !== "answering") return;
+
+    loopRef.current = true;
+    let loopTimeout: ReturnType<typeof setTimeout>;
+
+    const runAnswerLoop = () => {
+      if (!loopRef.current) return;
+
+      // Reset to initial state
+      setPositions({ ...question.initialPositions });
+      setBallPosition(question.initialPositions[question.initialBallHolder]);
+      setBallAnimDuration(0);
+      setPlayerAnimDuration(0);
+      setPassLine(null);
+
+      loopTimeout = setTimeout(() => {
+        if (!loopRef.current) return;
+
+        const { totalDuration } = runActions(
+          question.actions,
+          question.initialPositions,
+          question.initialBallHolder,
+          () => {
+            // Wait 1.5s at the end state, then restart
+            loopTimeout = setTimeout(() => {
+              if (loopRef.current) runAnswerLoop();
+            }, 1500);
+          }
+        );
+      }, 400);
+      timeoutsRef.current.push(loopTimeout);
+    };
+
+    runAnswerLoop();
+
+    return () => {
+      loopRef.current = false;
+      clearAllTimeouts();
+      if (loopTimeout) clearTimeout(loopTimeout);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, question.id]);
+
+  // Post-answer animation
+  useEffect(() => {
+    if (phase !== "postAnswer" || !selectedAnswer) return;
+
+    const postActions = question.postAnswerActions?.[selectedAnswer.id];
+    if (!postActions || postActions.length === 0) {
+      onPostAnswerComplete();
+      return;
+    }
+
+    // Figure out current ball holder from end of main animation
+    let endBallHolder = question.initialBallHolder;
+    for (const action of question.actions) {
+      if (action.ballPass) {
+        endBallHolder = action.ballPass.to;
+      } else {
+        const ballStep = action.steps.find(
+          (s) => s.hasBall && (s.type === "dribble" || s.type === "cut")
+        );
+        if (ballStep) endBallHolder = ballStep.playerId;
+      }
+    }
+
+    // Get end positions after main animation
+    const endPositions = { ...question.initialPositions };
+    for (const action of question.actions) {
+      action.steps.forEach((step) => {
+        endPositions[step.playerId] = step.to;
+      });
+    }
+
+    // Set to end state of main animation first
+    setPositions(endPositions);
+    setBallPosition(endPositions[endBallHolder]);
+    setBallAnimDuration(0);
+    setPlayerAnimDuration(0);
+
+    addTimeout(() => {
+      runActions(postActions, endPositions, endBallHolder, () => {
+        onPostAnswerComplete();
+      });
+    }, 300);
+
+    return () => clearAllTimeouts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, selectedAnswer?.id]);
+
+  const showSpots = phase === "answering" || phase === "feedback" || phase === "postAnswer";
 
   return (
     <div className="relative w-full aspect-square max-w-[400px] mx-auto">
       {/* Court background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-amber-700 to-amber-800 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-b from-amber-800 to-amber-700 rounded-2xl shadow-2xl overflow-hidden">
         <div className="absolute inset-0 opacity-20 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+CjxyZWN0IHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOGI3MzVhIiBzdHJva2Utd2lkdGg9IjAuMyIvPgo8L3N2Zz4=')]" />
         <CourtLines />
 
-        {/* Arrows */}
-        <AnimatePresence>
-          {activeArrows.map((arrow, i) => (
-            <PassArrow
-              key={`arrow-${i}`}
-              from={arrow.from}
-              to={arrow.to}
-              style={arrow.style}
-            />
-          ))}
-        </AnimatePresence>
+        {/* Pass line */}
+        {passLine && (
+          <PassLine from={passLine.from} to={passLine.to} active={true} />
+        )}
+
+        {/* Ball marker (separate from players, moves smoothly) */}
+        <BallMarker position={ballPosition} animDuration={ballAnimDuration} />
 
         {/* Player markers */}
         {question.players.map((player) => {
@@ -408,23 +586,22 @@ export default function TacticalBoard({
               position={pos}
               isOffense={player.isOffense}
               isTarget={player.id === question.targetPlayerId}
-              hasBall={ballHolder === player.id}
               isHighlighted={
                 phase === "answering" && player.id === question.targetPlayerId
               }
-              animating={animating}
+              animDuration={playerAnimDuration}
             />
           );
         })}
 
         {/* Answer spots */}
         <AnimatePresence>
-          {(phase === "answering" || phase === "feedback") &&
+          {showSpots &&
             question.answerSpots.map((spot) => (
               <AnswerSpotMarker
                 key={spot.id}
                 spot={spot}
-                phase={phase}
+                phase={phase as "answering" | "feedback" | "postAnswer"}
                 isSelected={selectedAnswer?.id === spot.id}
                 onTap={() => onSelectAnswer(spot)}
               />
@@ -432,24 +609,41 @@ export default function TacticalBoard({
         </AnimatePresence>
 
         {/* Phase indicator */}
-        {phase === "animating" && (
-          <motion.div
-            className="absolute top-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1 rounded-full"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            アニメーション再生中...
-          </motion.div>
-        )}
-        {phase === "answering" && (
-          <motion.div
-            className="absolute top-2 left-1/2 -translate-x-1/2 bg-yellow-500/80 text-gray-900 text-xs px-3 py-1 rounded-full font-bold"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
-            {question.targetPlayerLabel}番はどこに動く？タップ！
-          </motion.div>
-        )}
+        <AnimatePresence>
+          {phase === "animating" && (
+            <motion.div
+              key="anim-indicator"
+              className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1 rounded-full"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+            >
+              再生中...
+            </motion.div>
+          )}
+          {phase === "answering" && (
+            <motion.div
+              key="answer-indicator"
+              className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500/90 text-gray-900 text-xs px-3 py-1.5 rounded-full font-bold"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+            >
+              {question.targetPlayerLabel}番はどこに動く？タップ！
+            </motion.div>
+          )}
+          {phase === "postAnswer" && (
+            <motion.div
+              key="post-indicator"
+              className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-blue-500/80 text-white text-xs px-3 py-1 rounded-full"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+            >
+              その後の展開...
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   );

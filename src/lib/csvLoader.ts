@@ -10,10 +10,12 @@ interface CSVRow {
   // Players as JSON strings
   players_json: string;
   initial_positions_json: string;
+  initial_ball_holder: string;
   actions_json: string;
   target_player_id: string;
   target_player_label: string;
   answer_spots_json: string;
+  post_answer_actions_json?: string;
   correct_feedback: string;
   concept_explanation: string;
 }
@@ -52,10 +54,14 @@ function rowToQuestion(row: CSVRow): QuizQuestion {
       string,
       Position
     >,
+    initialBallHolder: row.initial_ball_holder,
     actions: JSON.parse(row.actions_json) as Action[],
     targetPlayerId: row.target_player_id,
     targetPlayerLabel: row.target_player_label,
     answerSpots: JSON.parse(row.answer_spots_json) as AnswerSpot[],
+    postAnswerActions: row.post_answer_actions_json
+      ? JSON.parse(row.post_answer_actions_json)
+      : undefined,
     correctFeedback: row.correct_feedback,
     conceptExplanation: row.concept_explanation,
     difficulty: parseInt(row.difficulty) as 1 | 2 | 3,

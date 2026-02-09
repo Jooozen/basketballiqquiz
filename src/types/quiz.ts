@@ -1,7 +1,8 @@
 // Position on the tactical board (percentage-based coordinates)
+// Coordinate system: rim is at TOP (y=0), half-court line at BOTTOM (y=100)
 export interface Position {
-  x: number; // 0-100 percentage
-  y: number; // 0-100 percentage
+  x: number; // 0-100 percentage (left to right)
+  y: number; // 0-100 percentage (rim at top, half-court at bottom)
 }
 
 // A player marker on the tactical board
@@ -20,6 +21,7 @@ export interface AnimationStep {
   duration: number; // seconds
   type: "move" | "screen" | "cut" | "pass" | "dribble";
   hasBall?: boolean;
+  receiveBall?: boolean; // this player receives the ball after this step
   // Visual aids
   showArrow?: boolean;
   arrowStyle?: "solid" | "dashed" | "wavy";
@@ -29,6 +31,7 @@ export interface AnimationStep {
 export interface Action {
   steps: AnimationStep[];
   pauseAfter?: number; // seconds to pause after this action
+  ballPass?: { from: string; to: string }; // pass ball between players during this action
 }
 
 // An answer spot on the board
@@ -48,13 +51,17 @@ export interface QuizQuestion {
   // Board setup
   players: Player[];
   initialPositions: Record<string, Position>; // playerId -> starting position
-  // Animation sequence (1-3 actions)
+  initialBallHolder: string; // playerId who starts with the ball
+  // Animation sequence (1-3 actions) played BEFORE the question
   actions: Action[];
   // Which player should the user move?
   targetPlayerId: string;
   targetPlayerLabel: string;
   // Answer options
   answerSpots: AnswerSpot[];
+  // Post-answer animation: what happens after the correct play
+  // keyed by answer spot id
+  postAnswerActions?: Record<string, Action[]>;
   // Correct answer feedback
   correctFeedback: string;
   // General explanation of the concept
