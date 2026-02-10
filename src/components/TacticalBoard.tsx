@@ -52,7 +52,6 @@ function buildScreenPath(from: Position, to: Position): string {
   const dy = to.y - from.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 0.1) return `M ${from.x} ${from.y}`;
-  // Curved wrap-around path
   const curveFactor = Math.min(len * 0.3, 12);
   const perpX = (-dy / len) * curveFactor;
   const perpY = (dx / len) * curveFactor;
@@ -68,10 +67,8 @@ function buildDribblePath(from: Position, to: Position, curveDir?: "left" | "rig
   if (len < 0.1) return `M ${from.x} ${from.y}`;
   const numZags = Math.max(4, Math.round(len / 4));
   const zagSize = 1.2;
-  const nx = dx / len;
-  const ny = dy / len;
-  const px = -ny;
-  const py = nx;
+  const px = -dy / len;
+  const py = dx / len;
   let path = `M ${from.x} ${from.y}`;
   for (let i = 1; i <= numZags; i++) {
     const t = i / numZags;
@@ -103,18 +100,51 @@ function buildPathForMoveType(from: Position, to: Position, moveType: MoveType, 
 }
 
 // ─── Court Lines (SVG) ───
+// Official NBA half-court: 47ft × 50ft
+// SVG mapping: x:5-95 (90 units = 50ft), y:5-95 (90 units = 47ft)
+// x-scale: 1.8 units/ft, y-scale: 1.914 units/ft
+// Rim at TOP, y=5 is baseline, y=95 is half-court line
 function CourtLines() {
   return (
     <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
+      {/* Court boundary */}
       <rect x="5" y="5" width="90" height="90" fill="none" stroke="#5a3e28" strokeWidth="0.5" rx="1" />
-      <circle cx="50" cy="12" r="1.5" fill="none" stroke="#5a3e28" strokeWidth="0.4" />
-      <line x1="45" y1="10" x2="55" y2="10" stroke="#5a3e28" strokeWidth="0.5" />
-      <line x1="43" y1="8" x2="57" y2="8" stroke="#5a3e28" strokeWidth="0.6" />
-      <path d="M 42 10 Q 42 22 50 25 Q 58 22 58 10" fill="none" stroke="#5a3e28" strokeWidth="0.3" />
-      <rect x="32" y="5" width="36" height="40" fill="none" stroke="#5a3e28" strokeWidth="0.4" />
-      <circle cx="50" cy="45" r="12" fill="none" stroke="#5a3e28" strokeWidth="0.3" strokeDasharray="1.5,0.8" />
-      <path d="M 15 15 L 15 45 Q 15 80 50 85 Q 85 80 85 45 L 85 15" fill="none" stroke="#5a3e28" strokeWidth="0.4" strokeDasharray="1.5,0.8" />
+
+      {/* Backboard (6ft wide, 4ft from baseline) */}
+      {/* y = 5 + 4×1.914 = 12.66, x: 50 ± 3×1.8 = 44.6 to 55.4 */}
+      <line x1="44.6" y1="12.7" x2="55.4" y2="12.7" stroke="#5a3e28" strokeWidth="0.6" />
+
+      {/* Rim (4.75ft from baseline) */}
+      {/* y = 5 + 4.75×1.914 = 14.1 */}
+      <circle cx="50" cy="14.1" r="1.35" fill="none" stroke="#5a3e28" strokeWidth="0.4" />
+
+      {/* Restricted area (4ft radius semicircle from basket center) */}
+      {/* rx=4×1.8=7.2, ry=4×1.914=7.66 */}
+      <path d="M 42.8 14.1 A 7.2 7.66 0 0 1 57.2 14.1" fill="none" stroke="#5a3e28" strokeWidth="0.3" />
+
+      {/* Key / Paint area (16ft wide, 19ft from baseline) */}
+      {/* x: 50 ± 8×1.8 = 35.6 to 64.4, y: 5 to 5+19×1.914 = 41.4 */}
+      <rect x="35.6" y="5" width="28.8" height="36.4" fill="none" stroke="#5a3e28" strokeWidth="0.4" />
+
+      {/* Free throw circle (6ft radius, at free throw line y=41.4) */}
+      {/* Top half only (dashed), bottom half inside key */}
+      <circle cx="50" cy="41.4" r="10.8" fill="none" stroke="#5a3e28" strokeWidth="0.3" strokeDasharray="1.5,0.8" />
+
+      {/* 3-point line */}
+      {/* Corner straight lines: 3ft from sideline = x: 5+5.4=10.4 and 95-5.4=89.6 */}
+      {/* Arc: ellipse rx=23.75×1.8=42.75, ry=23.75×1.914=45.46, center (50, 14.1) */}
+      {/* Corner-to-arc transition at y ≈ 31 */}
+      <path
+        d="M 10.4 5 L 10.4 31 A 42.75 45.46 0 0 1 89.6 31 L 89.6 5"
+        fill="none" stroke="#5a3e28" strokeWidth="0.4" strokeDasharray="1.5,0.8"
+      />
+
+      {/* Half-court line */}
       <line x1="5" y1="95" x2="95" y2="95" stroke="#5a3e28" strokeWidth="0.5" />
+
+      {/* Center circle (6ft radius, top half only) */}
+      {/* r ≈ 6×1.8 = 10.8 */}
+      <path d="M 39.2 95 A 10.8 11.5 0 0 1 60.8 95" fill="none" stroke="#5a3e28" strokeWidth="0.3" strokeDasharray="1.5,0.8" />
     </svg>
   );
 }
@@ -134,30 +164,98 @@ function ScreenTBar({ x, y, angle = 0 }: { x: number; y: number; angle?: number 
   );
 }
 
-function MovementLinesOverlay({ spots, targetPos }: { spots: AnswerSpot[]; targetPos: Position }) {
+function MovementLinesOverlay({ spots, targetPos, onSelectSpot }: {
+  spots: AnswerSpot[];
+  targetPos: Position;
+  onSelectSpot: (spot: AnswerSpot) => void;
+}) {
   return (
-    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" style={{ zIndex: 18 }}>
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="none" style={{ zIndex: 28 }}>
       <defs>
         <marker id="arrowHead" markerWidth="4" markerHeight="3" refX="3.5" refY="1.5" orient="auto">
           <polygon points="0 0, 4 1.5, 0 3" fill={LINE_COLOR} opacity={LINE_OPACITY} />
         </marker>
       </defs>
       {spots.map((spot) => (
-        <g key={spot.id} opacity="0.6">
+        <g key={spot.id} style={{ cursor: "pointer" }} onClick={() => onSelectSpot(spot)}>
+          {/* Invisible fat hit area for tapping */}
+          <path
+            d={buildPathForMoveType(targetPos, spot.position, spot.moveType, spot.curveDirection)}
+            fill="none"
+            stroke="transparent"
+            strokeWidth="5"
+          />
+          {/* Visible thin line */}
           <path
             d={buildPathForMoveType(targetPos, spot.position, spot.moveType, spot.curveDirection)}
             fill="none"
             stroke={LINE_COLOR}
-            strokeWidth={LINE_WIDTH * 0.8}
-            opacity={0.5}
+            strokeWidth={LINE_WIDTH}
+            opacity={0.7}
             strokeDasharray={spot.moveType === "pass" ? "1.5,1.2" : undefined}
             markerEnd={spot.moveType === "cut" || spot.moveType === "pass" ? "url(#arrowHead)" : undefined}
           />
           {spot.moveType === "screen" && (
             <ScreenTBar x={spot.position.x} y={spot.position.y} angle={spot.screenAngle} />
           )}
+          {/* Small endpoint dot */}
+          <circle
+            cx={spot.position.x}
+            cy={spot.position.y}
+            r="1.2"
+            fill="rgba(255,255,255,0.6)"
+            stroke="rgba(255,255,255,0.9)"
+            strokeWidth="0.3"
+          />
+          {/* Invisible large hit area at endpoint */}
+          <circle
+            cx={spot.position.x}
+            cy={spot.position.y}
+            r="4"
+            fill="transparent"
+          />
         </g>
       ))}
+    </svg>
+  );
+}
+
+// ─── Feedback overlay: show scored spots after answer ───
+function FeedbackLinesOverlay({ spots, targetPos, selectedId }: {
+  spots: AnswerSpot[];
+  targetPos: Position;
+  selectedId: string | null;
+}) {
+  return (
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" style={{ zIndex: 28 }}>
+      <defs>
+        <marker id="arrowHeadFb" markerWidth="4" markerHeight="3" refX="3.5" refY="1.5" orient="auto">
+          <polygon points="0 0, 4 1.5, 0 3" fill={LINE_COLOR} opacity={0.4} />
+        </marker>
+      </defs>
+      {spots.map((spot) => {
+        const isSelected = spot.id === selectedId;
+        const dotColor = spot.score === 100 ? "#22c55e" : spot.score === 50 ? "#eab308" : "#ef4444";
+        const lineOpacity = isSelected ? 0.7 : 0.25;
+        const dotR = isSelected ? 2.0 : 1.2;
+        return (
+          <g key={spot.id} opacity={isSelected ? 1 : 0.4}>
+            <path
+              d={buildPathForMoveType(targetPos, spot.position, spot.moveType, spot.curveDirection)}
+              fill="none"
+              stroke={LINE_COLOR}
+              strokeWidth={LINE_WIDTH * 0.7}
+              opacity={lineOpacity}
+              strokeDasharray={spot.moveType === "pass" ? "1.5,1.2" : undefined}
+              markerEnd="url(#arrowHeadFb)"
+            />
+            {spot.moveType === "screen" && (
+              <ScreenTBar x={spot.position.x} y={spot.position.y} angle={spot.screenAngle} />
+            )}
+            <circle cx={spot.position.x} cy={spot.position.y} r={dotR} fill={dotColor} stroke="#fff" strokeWidth="0.3" />
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -182,20 +280,19 @@ function PassLineAnim({ from, to }: { from: Position; to: Position }) {
 }
 
 // ─── Player Marker (HTML div + Framer Motion) ───
-function PlayerMarker({ player, position, isTarget, isHighlighted, animDuration }: {
-  player: Player; position: Position; isTarget: boolean; isHighlighted: boolean; animDuration: number;
+function PlayerMarker({ player, position, isTarget, isHighlighted, animDuration, facingAngle }: {
+  player: Player; position: Position; isTarget: boolean; isHighlighted: boolean; animDuration: number; facingAngle?: number;
 }) {
   if (player.isOffense) {
-    // Offense: small dark circle with label
     const bg = isTarget ? "bg-yellow-400 border-yellow-600" : "bg-gray-900 border-gray-700";
     const text = isTarget ? "text-gray-900" : "text-white";
     return (
       <motion.div
-        className={`absolute w-6 h-6 rounded-full ${bg} border flex items-center justify-center shadow-md`}
+        className={`absolute w-8 h-8 rounded-full ${bg} border-2 flex items-center justify-center shadow-md`}
         animate={{
           left: `${position.x}%`,
           top: `${position.y}%`,
-          scale: isHighlighted ? [1, 1.12, 1] : 1,
+          scale: isHighlighted ? [1, 1.1, 1] : 1,
         }}
         transition={{
           left: { duration: animDuration, ease: "easeInOut" },
@@ -204,11 +301,13 @@ function PlayerMarker({ player, position, isTarget, isHighlighted, animDuration 
         }}
         style={{ transform: "translate(-50%, -50%)", zIndex: isTarget ? 22 : 20 }}
       >
-        <span className={`text-[8px] font-bold ${text} leading-none`}>{player.label}</span>
+        <span className={`text-[9px] font-bold ${text} leading-none`}>{player.label}</span>
       </motion.div>
     );
   } else {
-    // Defense: triangle pointing towards nearest offense player
+    // Defense: wide flat triangle showing defensive stance
+    // Tip = face direction, wide base = arms spread
+    const rotation = facingAngle !== undefined ? facingAngle : 0;
     return (
       <motion.div
         className="absolute flex items-center justify-center"
@@ -220,16 +319,23 @@ function PlayerMarker({ player, position, isTarget, isHighlighted, animDuration 
           left: { duration: animDuration, ease: "easeInOut" },
           top: { duration: animDuration, ease: "easeInOut" },
         }}
-        style={{ transform: "translate(-50%, -50%)", zIndex: 10, width: 14, height: 14 }}
+        style={{ transform: "translate(-50%, -50%)", zIndex: 10, width: 22, height: 14 }}
       >
-        <svg viewBox="-7 -7 14 14" width="14" height="14">
+        <svg
+          viewBox="-11 -7 22 14"
+          width="22" height="14"
+          style={{ transform: `rotate(${rotation}deg)` }}
+        >
+          {/* Wide flat triangle: tip(face) at top, wide base at bottom */}
           <polygon
-            points="0,-5.5 4.8,2.8 -4.8,2.8"
-            fill="#6b7280"
-            stroke="#9ca3af"
-            strokeWidth="0.8"
-            opacity="0.85"
+            points="0,-5 9,5 -9,5"
+            fill="#78716c"
+            stroke="#a8a29e"
+            strokeWidth="0.6"
+            strokeLinejoin="round"
           />
+          {/* Small dot for "head" direction */}
+          <circle cx="0" cy="-4" r="1" fill="#a8a29e" />
         </svg>
       </motion.div>
     );
@@ -243,9 +349,9 @@ function BallMarker({ position, animDuration }: { position: Position; animDurati
       className="absolute pointer-events-none"
       animate={{ left: `${position.x}%`, top: `${position.y}%` }}
       transition={{ duration: animDuration, ease: "easeInOut" }}
-      style={{ transform: "translate(-50%, -50%)", marginLeft: "10px", marginTop: "-8px", zIndex: 25 }}
+      style={{ transform: "translate(-50%, -50%)", marginLeft: "12px", marginTop: "-10px", zIndex: 25 }}
     >
-      <div className="w-3.5 h-3.5 bg-orange-500 rounded-full border border-orange-700 shadow-md shadow-orange-500/40" />
+      <div className="w-4 h-4 bg-orange-500 rounded-full border-2 border-orange-700 shadow-md shadow-orange-500/40" />
     </motion.div>
   );
 }
@@ -257,73 +363,6 @@ const moveTypeLabels: Record<MoveType, string> = {
   dribble: "ドリブル",
   pass: "パス",
 };
-
-// ─── Answer Spot Marker ───
-function AnswerSpotMarker({ spot, phase, isSelected, onTap }: {
-  spot: AnswerSpot;
-  phase: "answering" | "feedback" | "postAnswer" | "shootResult";
-  isSelected: boolean;
-  onTap: () => void;
-}) {
-  const getColor = () => {
-    if (phase === "feedback" || phase === "postAnswer" || phase === "shootResult") {
-      if (spot.score === 100) return "bg-green-500 border-green-300";
-      if (spot.score === 50) return "bg-yellow-500 border-yellow-300";
-      return "bg-red-500 border-red-300";
-    }
-    if (isSelected) return "bg-white border-white";
-    return "bg-white/40 border-white/70";
-  };
-
-  const isRevealed = phase === "feedback" || phase === "postAnswer" || phase === "shootResult";
-  const dimmed = (phase === "postAnswer" || phase === "shootResult") && !isSelected;
-  const showLabel = phase === "answering" && !isSelected;
-
-  return (
-    <motion.button
-      className={`absolute w-6 h-6 rounded-full ${getColor()} border flex flex-col items-center justify-center shadow-md cursor-pointer`}
-      style={{
-        left: `${spot.position.x}%`,
-        top: `${spot.position.y}%`,
-        transform: "translate(-50%, -50%)",
-        zIndex: 30,
-      }}
-      initial={{ scale: 0, opacity: 0 }}
-      animate={{
-        scale: isRevealed && spot.score === 100 ? [1, 1.3, 1] : isSelected ? 1.15 : 1,
-        opacity: dimmed ? 0.3 : 1,
-      }}
-      transition={{
-        scale: { duration: isRevealed && spot.score === 100 ? 0.6 : 0.3, repeat: isRevealed && spot.score === 100 ? 2 : 0 },
-        opacity: { duration: 0.3 },
-      }}
-      whileTap={{ scale: 0.9 }}
-      onClick={onTap}
-      disabled={phase !== "answering"}
-      aria-label={moveTypeLabels[spot.moveType]}
-    >
-      {isRevealed ? (
-        <span className="text-white text-[8px] font-bold">{spot.score}</span>
-      ) : isSelected ? (
-        <motion.div
-          className="w-2 h-2 rounded-full bg-white"
-          animate={{ opacity: [0.5, 1, 0.5] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-        />
-      ) : null}
-
-      {/* External label */}
-      {showLabel && (
-        <div
-          className="absolute whitespace-nowrap bg-black/70 text-white text-[7px] px-1 py-0.5 rounded pointer-events-none"
-          style={{ top: "-16px", left: "50%", transform: "translateX(-50%)" }}
-        >
-          {moveTypeLabels[spot.moveType]}
-        </div>
-      )}
-    </motion.button>
-  );
-}
 
 // ─── Main Component ───
 export default function TacticalBoard({
@@ -352,6 +391,32 @@ export default function TacticalBoard({
   useEffect(() => {
     return () => { clearAllTimeouts(); loopRef.current = false; };
   }, [clearAllTimeouts]);
+
+  // Compute defense facing angles (toward nearest offense player)
+  const defenseFacingAngles = useMemo(() => {
+    const angles: Record<string, number> = {};
+    const defPlayers = players.filter(p => !p.isOffense);
+    const offPlayers = players.filter(p => p.isOffense);
+    for (const def of defPlayers) {
+      const defPos = positions[def.id] || { x: 50, y: 50 };
+      let nearestAngle = 0;
+      let nearestDist = Infinity;
+      for (const off of offPlayers) {
+        const offPos = positions[off.id] || { x: 50, y: 50 };
+        const dx = offPos.x - defPos.x;
+        const dy = offPos.y - defPos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < nearestDist) {
+          nearestDist = dist;
+          // atan2(dy, dx): 0=right, 90=down in SVG coords
+          // Triangle tip points UP by default (0deg), so +90 offset
+          nearestAngle = Math.atan2(dy, dx) * 180 / Math.PI + 90;
+        }
+      }
+      angles[def.id] = nearestAngle;
+    }
+    return angles;
+  }, [players, positions]);
 
   const runActions = useCallback(
     (actions: Action[], actionStartPositions: Record<string, Position>, actionStartBallHolder: string, onDone: () => void) => {
@@ -396,7 +461,6 @@ export default function TacticalBoard({
       });
 
       addTimeout(onDone, totalDelay);
-      return { finalPositions: currentPositions, finalBallHolder: currentBallHolder };
     },
     [addTimeout]
   );
@@ -490,8 +554,8 @@ export default function TacticalBoard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, selectedAnswer?.id]);
 
-  const showSpots = phase === "answering" || phase === "feedback" || phase === "postAnswer" || phase === "shootResult";
-  const showMoveLines = phase === "answering";
+  const showAnswerLines = phase === "answering";
+  const showFeedbackLines = phase === "feedback" || phase === "postAnswer" || phase === "shootResult";
   const targetPos = positions[step.targetPlayerId] || { x: 50, y: 50 };
 
   return (
@@ -500,14 +564,29 @@ export default function TacticalBoard({
         {/* Wood grain */}
         <div className="absolute inset-0 opacity-20 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+CjxyZWN0IHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOGI3MzVhIiBzdHJva2Utd2lkdGg9IjAuMyIvPgo8L3N2Zz4=')]" />
 
-        {/* Court lines */}
+        {/* Court lines (correct NBA proportions) */}
         <CourtLines />
 
         {/* Pass animation */}
         {passLine && <PassLineAnim from={passLine.from} to={passLine.to} />}
 
-        {/* Movement type lines during answering */}
-        {showMoveLines && <MovementLinesOverlay spots={step.answerSpots} targetPos={targetPos} />}
+        {/* Movement lines during answering (clickable) */}
+        {showAnswerLines && (
+          <MovementLinesOverlay
+            spots={step.answerSpots}
+            targetPos={targetPos}
+            onSelectSpot={onSelectAnswer}
+          />
+        )}
+
+        {/* Feedback lines after answer */}
+        {showFeedbackLines && (
+          <FeedbackLinesOverlay
+            spots={step.answerSpots}
+            targetPos={targetPos}
+            selectedId={selectedAnswer?.id || null}
+          />
+        )}
 
         {/* Ball */}
         <BallMarker position={ballPosition} animDuration={ballAnimDuration} />
@@ -523,22 +602,10 @@ export default function TacticalBoard({
               isTarget={player.id === step.targetPlayerId}
               isHighlighted={phase === "answering" && player.id === step.targetPlayerId}
               animDuration={playerAnimDuration}
+              facingAngle={!player.isOffense ? defenseFacingAngles[player.id] : undefined}
             />
           );
         })}
-
-        {/* Answer spots */}
-        <AnimatePresence>
-          {showSpots && step.answerSpots.map((spot) => (
-            <AnswerSpotMarker
-              key={spot.id}
-              spot={spot}
-              phase={phase as "answering" | "feedback" | "postAnswer" | "shootResult"}
-              isSelected={selectedAnswer?.id === spot.id}
-              onTap={() => onSelectAnswer(spot)}
-            />
-          ))}
-        </AnimatePresence>
 
         {/* Phase labels */}
         <AnimatePresence>
