@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Player,
@@ -23,14 +23,89 @@ interface TacticalBoardProps {
   onPostAnswerComplete: () => void;
 }
 
-// Court lines with RIM AT TOP
+// ─── Constants ───
+const LINE_COLOR = "#3d2b1a";
+const LINE_WIDTH = 0.5;
+const LINE_OPACITY = 0.85;
+
+// ─── SVG Path Builders ───
+
+function buildCutPath(from: Position, to: Position, curveDir?: "left" | "right" | "straight"): string {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 0.1) return `M ${from.x} ${from.y}`;
+  if (!curveDir || curveDir === "straight") {
+    return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
+  }
+  const curveFactor = Math.min(len * 0.35, 18);
+  const offset = curveDir === "left" ? -curveFactor : curveFactor;
+  const perpX = (-dy / len) * offset;
+  const perpY = (dx / len) * offset;
+  const cx = (from.x + to.x) / 2 + perpX;
+  const cy = (from.y + to.y) / 2 + perpY;
+  return `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+}
+
+function buildScreenPath(from: Position, to: Position): string {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 0.1) return `M ${from.x} ${from.y}`;
+  // Curved wrap-around path
+  const curveFactor = Math.min(len * 0.3, 12);
+  const perpX = (-dy / len) * curveFactor;
+  const perpY = (dx / len) * curveFactor;
+  const cx = (from.x + to.x) / 2 + perpX;
+  const cy = (from.y + to.y) / 2 + perpY;
+  return `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+}
+
+function buildDribblePath(from: Position, to: Position, curveDir?: "left" | "right" | "straight"): string {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 0.1) return `M ${from.x} ${from.y}`;
+  const numZags = Math.max(4, Math.round(len / 4));
+  const zagSize = 1.2;
+  const nx = dx / len;
+  const ny = dy / len;
+  const px = -ny;
+  const py = nx;
+  let path = `M ${from.x} ${from.y}`;
+  for (let i = 1; i <= numZags; i++) {
+    const t = i / numZags;
+    let bx = from.x + dx * t;
+    let by = from.y + dy * t;
+    if (curveDir && curveDir !== "straight") {
+      const curveFac = Math.sin(t * Math.PI) * len * 0.15;
+      const curveOff = curveDir === "left" ? -curveFac : curveFac;
+      bx += px * curveOff;
+      by += py * curveOff;
+    }
+    if (i < numZags) {
+      const sign = i % 2 === 0 ? 1 : -1;
+      path += ` L ${bx + px * zagSize * sign} ${by + py * zagSize * sign}`;
+    } else {
+      path += ` L ${bx} ${by}`;
+    }
+  }
+  return path;
+}
+
+function buildPathForMoveType(from: Position, to: Position, moveType: MoveType, curveDir?: "left" | "right" | "straight"): string {
+  switch (moveType) {
+    case "cut": return buildCutPath(from, to, curveDir);
+    case "screen": return buildScreenPath(from, to);
+    case "dribble": return buildDribblePath(from, to, curveDir);
+    case "pass": return `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
+  }
+}
+
+// ─── Court Lines (SVG) ───
 function CourtLines() {
   return (
-    <svg
-      viewBox="0 0 100 100"
-      className="absolute inset-0 w-full h-full"
-      preserveAspectRatio="none"
-    >
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
       <rect x="5" y="5" width="90" height="90" fill="none" stroke="#5a3e28" strokeWidth="0.5" rx="1" />
       <circle cx="50" cy="12" r="1.5" fill="none" stroke="#5a3e28" strokeWidth="0.4" />
       <line x1="45" y1="10" x2="55" y2="10" stroke="#5a3e28" strokeWidth="0.5" />
@@ -44,187 +119,53 @@ function CourtLines() {
   );
 }
 
-// --- Movement Line SVG Components ---
-// Thin lines matching professional basketball tactical diagrams
-
-const LINE_COLOR = "#3d2b1a";
-const LINE_WIDTH = 0.45;
-const LINE_OPACITY = 0.9;
-
-// Cut arrow: straight or curved depending on curveDirection
-function CutArrow({ from, to, curveDir }: { from: Position; to: Position; curveDir?: "left" | "right" | "straight" }) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 0.1) return null;
-
-  let path: string;
-  if (!curveDir || curveDir === "straight") {
-    // Straight cut - direct line
-    path = `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
-  } else {
-    // Curved cut - realistic basketball arc
-    // Use different curve intensities based on distance
-    const curveFactor = Math.min(len * 0.3, 15);
-    const offset = curveDir === "left" ? -curveFactor : curveFactor;
-    const perpX = (-dy / len) * offset;
-    const perpY = (dx / len) * offset;
-    const cx = (from.x + to.x) / 2 + perpX;
-    const cy = (from.y + to.y) / 2 + perpY;
-    path = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
-  }
-  return (
-    <path d={path} fill="none" stroke={LINE_COLOR} strokeWidth={LINE_WIDTH}
-      opacity={LINE_OPACITY} markerEnd="url(#arrowHead)" />
-  );
-}
-
-// Screen line: line to position + perpendicular bar showing screen orientation
-function ScreenLine({ from, to, angle }: { from: Position; to: Position; angle?: number }) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 0.1) return null;
-
-  const barLen = 3.0;
-
-  // Bar orientation: use screenAngle if provided, otherwise perpendicular to movement
-  let barDx: number, barDy: number;
-  if (angle !== undefined) {
-    const rad = (angle * Math.PI) / 180;
-    barDx = Math.cos(rad) * barLen;
-    barDy = -Math.sin(rad) * barLen; // SVG y is inverted
-  } else {
-    // Default: perpendicular to movement direction
-    barDx = (-dy / len) * barLen;
-    barDy = (dx / len) * barLen;
-  }
-
-  return (
-    <>
-      <line x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-        stroke={LINE_COLOR} strokeWidth={LINE_WIDTH} opacity={LINE_OPACITY} />
-      <line
-        x1={to.x + barDx} y1={to.y + barDy}
-        x2={to.x - barDx} y2={to.y - barDy}
-        stroke={LINE_COLOR} strokeWidth={LINE_WIDTH * 2.5} opacity={LINE_OPACITY}
-        strokeLinecap="round"
-      />
-    </>
-  );
-}
-
-// Dribble zigzag: wavy line for ball handler movement
-function DribbleZigzag({ from, to, curveDir }: { from: Position; to: Position; curveDir?: "left" | "right" | "straight" }) {
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const len = Math.sqrt(dx * dx + dy * dy);
-  if (len < 0.1) return null;
-
-  // Zigzag parameters - tight consistent waves
-  const numZags = Math.max(3, Math.round(len / 5));
-  const zagSize = 1.5;
-  const nx = dx / len;
-  const ny = dy / len;
-  const px = -ny;
-  const py = nx;
-
-  // If curved, apply a gentle overall curve to the zigzag path
-  let path = `M ${from.x} ${from.y}`;
-  for (let i = 1; i <= numZags; i++) {
-    const t = i / numZags;
-    let bx = from.x + dx * t;
-    let by = from.y + dy * t;
-
-    // Apply curve offset if specified
-    if (curveDir && curveDir !== "straight") {
-      const curveFactor = Math.sin(t * Math.PI) * len * 0.15;
-      const curveOffset = curveDir === "left" ? -curveFactor : curveFactor;
-      bx += px * curveOffset;
-      by += py * curveOffset;
-    }
-
-    if (i < numZags) {
-      const sign = i % 2 === 0 ? 1 : -1;
-      path += ` L ${bx + px * zagSize * sign} ${by + py * zagSize * sign}`;
-    } else {
-      path += ` L ${bx} ${by}`;
-    }
-  }
-  return <path d={path} fill="none" stroke={LINE_COLOR} strokeWidth={LINE_WIDTH}
-    opacity={LINE_OPACITY} />;
-}
-
-// Pass dotted line: dashed line with arrow for passing
-function PassDotted({ from, to }: { from: Position; to: Position }) {
+// ─── SVG Movement Lines Overlay ───
+function ScreenTBar({ x, y, angle = 0 }: { x: number; y: number; angle?: number }) {
+  const barLen = 2.8;
+  const rad = (angle * Math.PI) / 180;
+  const dx = Math.cos(rad) * barLen;
+  const dy = -Math.sin(rad) * barLen;
   return (
     <line
-      x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-      stroke={LINE_COLOR} strokeWidth={LINE_WIDTH} strokeDasharray="1.5,1.2"
-      opacity={LINE_OPACITY} markerEnd="url(#arrowHead)"
+      x1={x + dx} y1={y + dy}
+      x2={x - dx} y2={y - dy}
+      stroke={LINE_COLOR} strokeWidth={LINE_WIDTH * 2.5} strokeLinecap="round" opacity={LINE_OPACITY}
     />
   );
 }
 
-function MovementLine({ from, to, moveType, curveDirection, screenAngle }: {
-  from: Position; to: Position; moveType: MoveType;
-  curveDirection?: "left" | "right" | "straight"; screenAngle?: number;
-}) {
-  switch (moveType) {
-    case "cut": return <CutArrow from={from} to={to} curveDir={curveDirection} />;
-    case "screen": return <ScreenLine from={from} to={to} angle={screenAngle} />;
-    case "dribble": return <DribbleZigzag from={from} to={to} curveDir={curveDirection} />;
-    case "pass": return <PassDotted from={from} to={to} />;
-  }
-}
-
-// SVG overlay for movement lines
 function MovementLinesOverlay({ spots, targetPos }: { spots: AnswerSpot[]; targetPos: Position }) {
   return (
-    <svg
-      viewBox="0 0 100 100"
-      className="absolute inset-0 w-full h-full pointer-events-none"
-      preserveAspectRatio="none"
-      style={{ zIndex: 18 }}
-    >
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" style={{ zIndex: 18 }}>
       <defs>
         <marker id="arrowHead" markerWidth="4" markerHeight="3" refX="3.5" refY="1.5" orient="auto">
           <polygon points="0 0, 4 1.5, 0 3" fill={LINE_COLOR} opacity={LINE_OPACITY} />
         </marker>
       </defs>
       {spots.map((spot) => (
-        <MovementLine
-          key={spot.id}
-          from={targetPos}
-          to={spot.position}
-          moveType={spot.moveType}
-          curveDirection={spot.curveDirection}
-          screenAngle={spot.screenAngle}
-        />
+        <g key={spot.id} opacity="0.6">
+          <path
+            d={buildPathForMoveType(targetPos, spot.position, spot.moveType, spot.curveDirection)}
+            fill="none"
+            stroke={LINE_COLOR}
+            strokeWidth={LINE_WIDTH * 0.8}
+            opacity={0.5}
+            strokeDasharray={spot.moveType === "pass" ? "1.5,1.2" : undefined}
+            markerEnd={spot.moveType === "cut" || spot.moveType === "pass" ? "url(#arrowHead)" : undefined}
+          />
+          {spot.moveType === "screen" && (
+            <ScreenTBar x={spot.position.x} y={spot.position.y} angle={spot.screenAngle} />
+          )}
+        </g>
       ))}
     </svg>
   );
 }
 
-// Animated ball
-function BallMarker({ position, animDuration }: { position: Position; animDuration: number }) {
+// ─── Pass Line SVG ───
+function PassLineAnim({ from, to }: { from: Position; to: Position }) {
   return (
-    <motion.div
-      className="absolute z-25 pointer-events-none"
-      animate={{ left: `${position.x}%`, top: `${position.y}%` }}
-      transition={{ duration: animDuration, ease: "easeInOut" }}
-      style={{ transform: "translate(-50%, -50%)", marginLeft: "14px", marginTop: "-12px" }}
-    >
-      <div className="w-5 h-5 bg-orange-500 rounded-full border-2 border-orange-700 shadow-lg shadow-orange-500/50" />
-    </motion.div>
-  );
-}
-
-// Pass line animation
-function PassLineAnim({ from, to, active }: { from: Position; to: Position; active: boolean }) {
-  if (!active) return null;
-  return (
-    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full pointer-events-none z-15" preserveAspectRatio="none">
+    <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" style={{ zIndex: 15 }}>
       <defs>
         <marker id="passArrow" markerWidth="5" markerHeight="4" refX="4" refY="2" orient="auto">
           <polygon points="0 0, 5 2, 0 4" fill="#FFD700" opacity="0.8" />
@@ -240,42 +181,76 @@ function PassLineAnim({ from, to, active }: { from: Position; to: Position; acti
   );
 }
 
-function PlayerMarker({ label, position, isOffense, isTarget, isHighlighted, animDuration }: {
-  label: string; position: Position; isOffense: boolean; isTarget: boolean; isHighlighted: boolean; animDuration: number;
+// ─── Player Marker (HTML div + Framer Motion) ───
+function PlayerMarker({ player, position, isTarget, isHighlighted, animDuration }: {
+  player: Player; position: Position; isTarget: boolean; isHighlighted: boolean; animDuration: number;
 }) {
-  // Offense: dark black circles like reference images. Defense: subtle gray
-  const size = isOffense ? "w-10 h-10" : "w-7 h-7";
-  const bgColor = isOffense
-    ? isTarget
-      ? "bg-yellow-400 border-yellow-600"
-      : "bg-gray-900 border-gray-600"
-    : "bg-gray-500 border-gray-400";
-  const textColor = isOffense
-    ? isTarget ? "text-gray-900" : "text-white"
-    : "text-white";
-  const fontSize = isOffense ? "text-[10px] font-bold" : "text-xs font-bold";
+  if (player.isOffense) {
+    // Offense: small dark circle with label
+    const bg = isTarget ? "bg-yellow-400 border-yellow-600" : "bg-gray-900 border-gray-700";
+    const text = isTarget ? "text-gray-900" : "text-white";
+    return (
+      <motion.div
+        className={`absolute w-6 h-6 rounded-full ${bg} border flex items-center justify-center shadow-md`}
+        animate={{
+          left: `${position.x}%`,
+          top: `${position.y}%`,
+          scale: isHighlighted ? [1, 1.12, 1] : 1,
+        }}
+        transition={{
+          left: { duration: animDuration, ease: "easeInOut" },
+          top: { duration: animDuration, ease: "easeInOut" },
+          scale: { duration: 1, repeat: isHighlighted ? Infinity : 0, ease: "easeInOut" },
+        }}
+        style={{ transform: "translate(-50%, -50%)", zIndex: isTarget ? 22 : 20 }}
+      >
+        <span className={`text-[8px] font-bold ${text} leading-none`}>{player.label}</span>
+      </motion.div>
+    );
+  } else {
+    // Defense: triangle pointing towards nearest offense player
+    return (
+      <motion.div
+        className="absolute flex items-center justify-center"
+        animate={{
+          left: `${position.x}%`,
+          top: `${position.y}%`,
+        }}
+        transition={{
+          left: { duration: animDuration, ease: "easeInOut" },
+          top: { duration: animDuration, ease: "easeInOut" },
+        }}
+        style={{ transform: "translate(-50%, -50%)", zIndex: 10, width: 14, height: 14 }}
+      >
+        <svg viewBox="-7 -7 14 14" width="14" height="14">
+          <polygon
+            points="0,-5.5 4.8,2.8 -4.8,2.8"
+            fill="#6b7280"
+            stroke="#9ca3af"
+            strokeWidth="0.8"
+            opacity="0.85"
+          />
+        </svg>
+      </motion.div>
+    );
+  }
+}
 
+// ─── Ball Marker ───
+function BallMarker({ position, animDuration }: { position: Position; animDuration: number }) {
   return (
     <motion.div
-      className={`absolute ${size} rounded-full ${bgColor} border-2 flex items-center justify-center ${fontSize} ${textColor} shadow-lg`}
-      animate={{
-        left: `${position.x}%`,
-        top: `${position.y}%`,
-        scale: isHighlighted ? [1, 1.15, 1] : 1,
-      }}
-      transition={{
-        left: { duration: animDuration, ease: "easeInOut" },
-        top: { duration: animDuration, ease: "easeInOut" },
-        scale: { duration: 0.8, repeat: isHighlighted ? Infinity : 0, ease: "easeInOut" },
-      }}
-      style={{ transform: "translate(-50%, -50%)", zIndex: isTarget ? 20 : 10 }}
+      className="absolute pointer-events-none"
+      animate={{ left: `${position.x}%`, top: `${position.y}%` }}
+      transition={{ duration: animDuration, ease: "easeInOut" }}
+      style={{ transform: "translate(-50%, -50%)", marginLeft: "10px", marginTop: "-8px", zIndex: 25 }}
     >
-      {label}
+      <div className="w-3.5 h-3.5 bg-orange-500 rounded-full border border-orange-700 shadow-md shadow-orange-500/40" />
     </motion.div>
   );
 }
 
-// Move type label for answer spots
+// ─── Move type labels ───
 const moveTypeLabels: Record<MoveType, string> = {
   cut: "カット",
   screen: "スクリーン",
@@ -283,6 +258,7 @@ const moveTypeLabels: Record<MoveType, string> = {
   pass: "パス",
 };
 
+// ─── Answer Spot Marker ───
 function AnswerSpotMarker({ spot, phase, isSelected, onTap }: {
   spot: AnswerSpot;
   phase: "answering" | "feedback" | "postAnswer" | "shootResult";
@@ -296,28 +272,29 @@ function AnswerSpotMarker({ spot, phase, isSelected, onTap }: {
       return "bg-red-500 border-red-300";
     }
     if (isSelected) return "bg-white border-white";
-    return "bg-white/50 border-white/80";
+    return "bg-white/40 border-white/70";
   };
 
-  const getScale = () => {
-    if ((phase === "feedback" || phase === "postAnswer") && spot.score === 100) return [1, 1.3, 1];
-    if (isSelected) return 1.2;
-    return 1;
-  };
-
+  const isRevealed = phase === "feedback" || phase === "postAnswer" || phase === "shootResult";
+  const dimmed = (phase === "postAnswer" || phase === "shootResult") && !isSelected;
   const showLabel = phase === "answering" && !isSelected;
 
   return (
     <motion.button
-      className={`absolute w-10 h-10 rounded-full ${getColor()} border-2 flex flex-col items-center justify-center shadow-lg cursor-pointer z-30`}
-      style={{ left: `${spot.position.x}%`, top: `${spot.position.y}%`, transform: "translate(-50%, -50%)" }}
+      className={`absolute w-6 h-6 rounded-full ${getColor()} border flex flex-col items-center justify-center shadow-md cursor-pointer`}
+      style={{
+        left: `${spot.position.x}%`,
+        top: `${spot.position.y}%`,
+        transform: "translate(-50%, -50%)",
+        zIndex: 30,
+      }}
       initial={{ scale: 0, opacity: 0 }}
       animate={{
-        scale: getScale(),
-        opacity: (phase === "postAnswer" || phase === "shootResult") && !isSelected ? 0.3 : 1,
+        scale: isRevealed && spot.score === 100 ? [1, 1.3, 1] : isSelected ? 1.15 : 1,
+        opacity: dimmed ? 0.3 : 1,
       }}
       transition={{
-        scale: { duration: (phase === "feedback" || phase === "postAnswer") && spot.score === 100 ? 0.6 : 0.3, repeat: phase === "feedback" && spot.score === 100 ? 2 : 0 },
+        scale: { duration: isRevealed && spot.score === 100 ? 0.6 : 0.3, repeat: isRevealed && spot.score === 100 ? 2 : 0 },
         opacity: { duration: 0.3 },
       }}
       whileTap={{ scale: 0.9 }}
@@ -325,25 +302,33 @@ function AnswerSpotMarker({ spot, phase, isSelected, onTap }: {
       disabled={phase !== "answering"}
       aria-label={moveTypeLabels[spot.moveType]}
     >
-      {(phase === "feedback" || phase === "postAnswer" || phase === "shootResult") ? (
-        <span className="text-white text-xs font-bold">{spot.score}</span>
-      ) : showLabel ? (
-        <span className="text-gray-800 text-[7px] font-bold leading-none">
-          {moveTypeLabels[spot.moveType]}
-        </span>
-      ) : (
+      {isRevealed ? (
+        <span className="text-white text-[8px] font-bold">{spot.score}</span>
+      ) : isSelected ? (
         <motion.div
-          className="w-3 h-3 rounded-full bg-white"
+          className="w-2 h-2 rounded-full bg-white"
           animate={{ opacity: [0.5, 1, 0.5] }}
           transition={{ duration: 1.5, repeat: Infinity }}
         />
+      ) : null}
+
+      {/* External label */}
+      {showLabel && (
+        <div
+          className="absolute whitespace-nowrap bg-black/70 text-white text-[7px] px-1 py-0.5 rounded pointer-events-none"
+          style={{ top: "-16px", left: "50%", transform: "translateX(-50%)" }}
+        >
+          {moveTypeLabels[spot.moveType]}
+        </div>
       )}
     </motion.button>
   );
 }
 
+// ─── Main Component ───
 export default function TacticalBoard({
-  players, startPositions, startBallHolder, step, phase, selectedAnswer, onSelectAnswer, onAnimationComplete, onPostAnswerComplete,
+  players, startPositions, startBallHolder, step, phase,
+  selectedAnswer, onSelectAnswer, onAnimationComplete, onPostAnswerComplete,
 }: TacticalBoardProps) {
   const [positions, setPositions] = useState<Record<string, Position>>(() => ({ ...startPositions }));
   const [ballPosition, setBallPosition] = useState<Position>(() => startPositions[startBallHolder] || { x: 50, y: 50 });
@@ -375,18 +360,21 @@ export default function TacticalBoard({
       let totalDelay = 0;
 
       actions.forEach((action) => {
-        const stepDuration = action.steps.length > 0 ? Math.max(...action.steps.map((s) => s.duration)) : 0.5;
+        const stepDuration = action.steps.length > 0 ? Math.max(...action.steps.map(s => s.duration)) : 0.5;
         const capturedPositions = { ...currentPositions };
         const capturedBallHolder = currentBallHolder;
 
         addTimeout(() => {
           setPlayerAnimDuration(stepDuration);
           const newPositions = { ...capturedPositions };
-          action.steps.forEach((s) => { newPositions[s.playerId] = s.to; });
+          action.steps.forEach(s => { newPositions[s.playerId] = s.to; });
           setPositions(newPositions);
 
-          const dribbleStep = action.steps.find((s) => s.hasBall && (s.type === "dribble" || s.type === "cut"));
-          if (dribbleStep) { setBallAnimDuration(stepDuration); setBallPosition(dribbleStep.to); }
+          const dribbleStep = action.steps.find(s => s.hasBall && (s.type === "dribble" || s.type === "cut"));
+          if (dribbleStep) {
+            setBallAnimDuration(stepDuration);
+            setBallPosition(dribbleStep.to);
+          }
 
           if (action.ballPass) {
             const toPos = newPositions[action.ballPass.to];
@@ -394,21 +382,21 @@ export default function TacticalBoard({
             setPassLine({ from: fromPos, to: toPos });
             const passDelay = Math.min(stepDuration * 0.6, 0.4) * 1000;
             addTimeout(() => { setBallAnimDuration(0.35); setBallPosition(toPos); }, passDelay);
-            addTimeout(() => { setPassLine(null); }, stepDuration * 1000);
+            addTimeout(() => setPassLine(null), stepDuration * 1000);
           }
         }, totalDelay);
 
-        action.steps.forEach((s) => { currentPositions[s.playerId] = s.to; });
-        if (action.ballPass) { currentBallHolder = action.ballPass.to; }
+        action.steps.forEach(s => { currentPositions[s.playerId] = s.to; });
+        if (action.ballPass) currentBallHolder = action.ballPass.to;
         else {
-          const ballStep = action.steps.find((s) => s.hasBall && (s.type === "dribble" || s.type === "cut"));
-          if (ballStep) currentBallHolder = ballStep.playerId;
+          const bs = action.steps.find(s => s.hasBall && (s.type === "dribble" || s.type === "cut"));
+          if (bs) currentBallHolder = bs.playerId;
         }
         totalDelay += stepDuration * 1000 + (action.pauseAfter || 0) * 1000;
       });
 
       addTimeout(onDone, totalDelay);
-      return { finalPositions: currentPositions, finalBallHolder: currentBallHolder, totalDuration: totalDelay };
+      return { finalPositions: currentPositions, finalBallHolder: currentBallHolder };
     },
     [addTimeout]
   );
@@ -422,15 +410,17 @@ export default function TacticalBoard({
       if (!loopRef.current) return;
       setPositions({ ...startPositions });
       setBallPosition(startPositions[startBallHolder] || { x: 50, y: 50 });
-      setBallAnimDuration(0); setPlayerAnimDuration(0); setPassLine(null);
+      setBallAnimDuration(0);
+      setPlayerAnimDuration(0);
+      setPassLine(null);
 
       if (step.preAnimations.length === 0) {
-        addTimeout(() => { onAnimationComplete(); }, 600);
+        addTimeout(() => onAnimationComplete(), 600);
         return;
       }
       addTimeout(() => {
         if (!loopRef.current) return;
-        runActions(step.preAnimations, startPositions, startBallHolder, () => { onAnimationComplete(); });
+        runActions(step.preAnimations, startPositions, startBallHolder, () => onAnimationComplete());
       }, 600);
     };
     runLoop();
@@ -448,7 +438,9 @@ export default function TacticalBoard({
       if (!loopRef.current) return;
       setPositions({ ...startPositions });
       setBallPosition(startPositions[startBallHolder] || { x: 50, y: 50 });
-      setBallAnimDuration(0); setPlayerAnimDuration(0); setPassLine(null);
+      setBallAnimDuration(0);
+      setPlayerAnimDuration(0);
+      setPassLine(null);
 
       if (step.preAnimations.length === 0) {
         loopTimeout = setTimeout(() => { if (loopRef.current) runAnswerLoop(); }, 3000);
@@ -465,7 +457,7 @@ export default function TacticalBoard({
       timeoutsRef.current.push(loopTimeout);
     };
     runAnswerLoop();
-    return () => { loopRef.current = false; clearAllTimeouts(); if (loopTimeout) clearTimeout(loopTimeout); };
+    return () => { loopRef.current = false; clearAllTimeouts(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
@@ -478,20 +470,21 @@ export default function TacticalBoard({
     let endBallHolder = startBallHolder;
     const endPositions = { ...startPositions };
     for (const action of step.preAnimations) {
-      action.steps.forEach((s) => { endPositions[s.playerId] = s.to; });
-      if (action.ballPass) { endBallHolder = action.ballPass.to; }
+      action.steps.forEach(s => { endPositions[s.playerId] = s.to; });
+      if (action.ballPass) endBallHolder = action.ballPass.to;
       else {
-        const bs = action.steps.find((s) => s.hasBall && (s.type === "dribble" || s.type === "cut"));
+        const bs = action.steps.find(s => s.hasBall && (s.type === "dribble" || s.type === "cut"));
         if (bs) endBallHolder = bs.playerId;
       }
     }
 
     setPositions(endPositions);
     setBallPosition(endPositions[endBallHolder] || { x: 50, y: 50 });
-    setBallAnimDuration(0); setPlayerAnimDuration(0);
+    setBallAnimDuration(0);
+    setPlayerAnimDuration(0);
 
     addTimeout(() => {
-      runActions(postActions, endPositions, endBallHolder, () => { onPostAnswerComplete(); });
+      runActions(postActions, endPositions, endBallHolder, () => onPostAnswerComplete());
     }, 300);
     return () => clearAllTimeouts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -504,24 +497,29 @@ export default function TacticalBoard({
   return (
     <div className="relative w-full aspect-square max-w-[400px] mx-auto">
       <div className="absolute inset-0 bg-gradient-to-b from-amber-800 to-amber-700 rounded-2xl shadow-2xl overflow-hidden">
+        {/* Wood grain */}
         <div className="absolute inset-0 opacity-20 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+CjxyZWN0IHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOGI3MzVhIiBzdHJva2Utd2lkdGg9IjAuMyIvPgo8L3N2Zz4=')]" />
+
+        {/* Court lines */}
         <CourtLines />
 
-        {passLine && <PassLineAnim from={passLine.from} to={passLine.to} active={true} />}
+        {/* Pass animation */}
+        {passLine && <PassLineAnim from={passLine.from} to={passLine.to} />}
 
         {/* Movement type lines during answering */}
         {showMoveLines && <MovementLinesOverlay spots={step.answerSpots} targetPos={targetPos} />}
 
+        {/* Ball */}
         <BallMarker position={ballPosition} animDuration={ballAnimDuration} />
 
+        {/* Players */}
         {players.map((player) => {
           const pos = positions[player.id] || { x: 0, y: 0 };
           return (
             <PlayerMarker
               key={player.id}
-              label={player.label}
+              player={player}
               position={pos}
-              isOffense={player.isOffense}
               isTarget={player.id === step.targetPlayerId}
               isHighlighted={phase === "answering" && player.id === step.targetPlayerId}
               animDuration={playerAnimDuration}
@@ -529,6 +527,7 @@ export default function TacticalBoard({
           );
         })}
 
+        {/* Answer spots */}
         <AnimatePresence>
           {showSpots && step.answerSpots.map((spot) => (
             <AnswerSpotMarker
@@ -541,21 +540,22 @@ export default function TacticalBoard({
           ))}
         </AnimatePresence>
 
+        {/* Phase labels */}
         <AnimatePresence>
           {phase === "animating" && (
-            <motion.div key="anim" className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1 rounded-full"
+            <motion.div key="anim" className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-black/60 text-white text-xs px-3 py-1 rounded-full z-40"
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
               再生中...
             </motion.div>
           )}
           {phase === "answering" && (
-            <motion.div key="answer" className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500/90 text-gray-900 text-xs px-3 py-1.5 rounded-full font-bold"
+            <motion.div key="answer" className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-yellow-500/90 text-gray-900 text-xs px-3 py-1.5 rounded-full font-bold z-40"
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
               {step.targetPlayerLabel}はどう動く？
             </motion.div>
           )}
           {phase === "postAnswer" && (
-            <motion.div key="post" className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-blue-500/80 text-white text-xs px-3 py-1 rounded-full"
+            <motion.div key="post" className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-blue-500/80 text-white text-xs px-3 py-1 rounded-full z-40"
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
               その後の展開...
             </motion.div>
