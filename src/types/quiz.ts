@@ -7,7 +7,7 @@ export interface Position {
 
 export interface Player {
   id: string;
-  label: string;
+  label: string; // "PG", "SG", "SF", "PF", "C" or "×"
   isOffense: boolean;
 }
 
@@ -16,7 +16,7 @@ export interface AnimationStep {
   from: Position;
   to: Position;
   duration: number;
-  type: "move" | "screen" | "cut" | "pass" | "dribble";
+  type: "move" | "cut" | "dribble";
   hasBall?: boolean;
 }
 
@@ -26,39 +26,41 @@ export interface Action {
   ballPass?: { from: string; to: string };
 }
 
+// Movement type for answer visualization
+export type MoveType = "cut" | "screen" | "dribble" | "pass";
+
 export interface AnswerSpot {
   id: string;
   position: Position;
-  score: number; // 100, 50, or 0
+  moveType: MoveType;
+  curveDirection?: "left" | "right"; // for curved cut lines
+  score: number; // 0, 50, or 100
   explanation: string;
 }
 
-// A single step in a sequence - one question about one player's movement
-export interface QuizStep {
-  description: string; // What's being asked
+// A decision point within a possession
+export interface DecisionStep {
+  description: string;
   targetPlayerId: string;
   targetPlayerLabel: string;
-  // Animations to play BEFORE showing the question
   preAnimations: Action[];
-  // Answer options
   answerSpots: AnswerSpot[];
-  // Post-answer animation per answer (keyed by answer spot id)
   postAnswerActions?: Record<string, Action[]>;
-  feedback: string; // Short feedback on correct answer
-  explanation: string; // Why this is the right move
+  shootQuality: number; // 0-10: how good is shooting right now
+  shootExplanation: string;
+  feedback: string;
+  explanation: string;
 }
 
-// A full quiz sequence - one continuous play broken into multiple steps
-export interface QuizSequence {
+// A single possession - multiple decisions until a shot
+export interface Possession {
   id: string;
   title: string;
-  subtitle: string;
-  description: string; // Overall situation
+  description: string;
   players: Player[];
   initialPositions: Record<string, Position>;
   initialBallHolder: string;
-  steps: QuizStep[]; // 5-10 sequential questions
-  difficulty: 1 | 2 | 3;
+  steps: DecisionStep[];
 }
 
 // Spaced repetition card data

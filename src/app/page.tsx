@@ -2,8 +2,8 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { QuizSequence, UserProgress } from "@/types/quiz";
-import { quizSequences } from "@/data/questions";
+import { UserProgress } from "@/types/quiz";
+import { possessions } from "@/data/questions";
 import {
   loadProgress,
   saveProgress,
@@ -20,73 +20,46 @@ type Screen = "home" | "quiz" | "result";
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("home");
   const [progress, setProgress] = useState<UserProgress | null>(null);
-  const [currentSequence, setCurrentSequence] = useState<QuizSequence | null>(null);
   const [sessionScores, setSessionScores] = useState<number[]>([]);
 
-  // Load progress on mount
   useEffect(() => {
     setProgress(loadProgress());
   }, []);
 
-  const startSequence = useCallback(
-    (sequenceId: string) => {
-      const seq = quizSequences.find((s) => s.id === sequenceId);
-      if (!seq) return;
-      setCurrentSequence(seq);
-      setSessionScores([]);
-      setScreen("quiz");
-    },
-    []
-  );
+  const handleStartSession = useCallback(() => {
+    setSessionScores([]);
+    setScreen("quiz");
+  }, []);
 
-  const handleStepAnswer = useCallback(
-    (sequenceId: string, stepIndex: number, score: number) => {
+  const handleSessionComplete = useCallback(
+    (possessionScores: number[]) => {
       if (!progress) return;
 
-      // Track per-step answer for overall stats
+      setSessionScores(possessionScores);
+      const totalScore = possessionScores.reduce((a, b) => a + b, 0);
+
+      // Update progress
+      const card = progress.cards["session"] || createNewCard("session");
+      const quality = totalScore >= 70 ? 100 : totalScore >= 40 ? 50 : 0;
+      const updatedCard = calculateNextReview(card, quality);
+
       let updatedProgress: UserProgress = {
         ...progress,
-        totalAnswered: progress.totalAnswered + 1,
-        totalCorrect:
-          score === 100 ? progress.totalCorrect + 1 : progress.totalCorrect,
+        totalAnswered: progress.totalAnswered + possessionScores.length,
+        totalCorrect: progress.totalCorrect + possessionScores.filter((s) => s >= 7).length,
+        cards: { ...progress.cards, session: updatedCard },
       };
-
       updatedProgress = updateStreak(updatedProgress);
-      setProgress(updatedProgress);
-      saveProgress(updatedProgress);
-    },
-    [progress]
-  );
-
-  const handleComplete = useCallback(
-    (scores: number[]) => {
-      if (!progress || !currentSequence) return;
-
-      setSessionScores(scores);
-
-      // Save sequence-level score using spaced repetition
-      const totalScore = scores.reduce((a, b) => a + b, 0);
-      const card = progress.cards[currentSequence.id] || createNewCard(currentSequence.id);
-      const updatedCard = calculateNextReview(card, totalScore >= scores.length * 70 ? 100 : totalScore >= scores.length * 40 ? 50 : 0);
-
-      const updatedProgress: UserProgress = {
-        ...progress,
-        cards: {
-          ...progress.cards,
-          [currentSequence.id]: updatedCard,
-        },
-      };
 
       setProgress(updatedProgress);
       saveProgress(updatedProgress);
       setScreen("result");
     },
-    [progress, currentSequence]
+    [progress]
   );
 
   const handleGoHome = useCallback(() => {
     setScreen("home");
-    setCurrentSequence(null);
   }, []);
 
   const handleRetry = useCallback(() => {
@@ -94,7 +67,6 @@ export default function Home() {
     setScreen("quiz");
   }, []);
 
-  // Loading state
   if (!progress) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-950">
@@ -110,51 +82,25 @@ export default function Home() {
   return (
     <AnimatePresence mode="wait">
       {screen === "home" && (
-        <motion.div
-          key="home"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          <HomeScreen
-            progress={progress}
-            sequences={quizSequences}
-            onStartSequence={startSequence}
-          />
+        <motion.div key="home" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+          <HomeScreen progress={progress} onStartSession={handleStartSession} />
         </motion.div>
       )}
 
-      {screen === "quiz" && currentSequence && (
-        <motion.div
-          key={`quiz-${currentSequence.id}`}
-          initial={{ opacity: 0, x: 50 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -50 }}
-          transition={{ duration: 0.3 }}
-        >
+      {screen === "quiz" && (
+        <motion.div key="quiz" initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -50 }} transition={{ duration: 0.3 }}>
           <QuizScreen
-            sequence={currentSequence}
-            onStepAnswer={handleStepAnswer}
-            onComplete={handleComplete}
+            possessions={possessions}
+            onSessionComplete={handleSessionComplete}
             onGoHome={handleGoHome}
           />
         </motion.div>
       )}
 
-      {screen === "result" && currentSequence && (
-        <motion.div
-          key="result"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        >
+      {screen === "result" && (
+        <motion.div key="result" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
           <ResultScreen
-            totalScore={sessionScores.reduce((a, b) => a + b, 0)}
-            maxScore={currentSequence.steps.length * 100}
-            questionCount={currentSequence.steps.length}
-            correctCount={sessionScores.filter((s) => s === 100).length}
+            possessionScores={sessionScores}
             onGoHome={handleGoHome}
             onRetry={handleRetry}
           />
