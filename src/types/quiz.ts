@@ -27,13 +27,16 @@ export interface Action {
 }
 
 // Movement type for answer visualization
+// Off-ball players: "cut" | "screen" only
+// On-ball players: "dribble" | "pass" | "cut" | "screen"
 export type MoveType = "cut" | "screen" | "dribble" | "pass";
 
 export interface AnswerSpot {
   id: string;
   position: Position;
   moveType: MoveType;
-  curveDirection?: "left" | "right"; // for curved cut lines
+  curveDirection?: "left" | "right" | "straight"; // cut/dribble path shape
+  screenAngle?: number; // degrees: orientation of screen bar (0=horizontal, 90=vertical)
   score: number; // 0, 50, or 100
   explanation: string;
 }

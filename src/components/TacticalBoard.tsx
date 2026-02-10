@@ -45,59 +45,105 @@ function CourtLines() {
 }
 
 // --- Movement Line SVG Components ---
+// Thin lines matching professional basketball tactical diagrams
 
-function CutArrow({ from, to, curveDir }: { from: Position; to: Position; curveDir?: "left" | "right" }) {
+const LINE_COLOR = "#3d2b1a";
+const LINE_WIDTH = 0.45;
+const LINE_OPACITY = 0.9;
+
+// Cut arrow: straight or curved depending on curveDirection
+function CutArrow({ from, to, curveDir }: { from: Position; to: Position; curveDir?: "left" | "right" | "straight" }) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 0.1) return null;
-  const offset = curveDir === "left" ? -len * 0.25 : len * 0.25;
-  const perpX = (-dy / len) * offset;
-  const perpY = (dx / len) * offset;
-  const cx = (from.x + to.x) / 2 + perpX;
-  const cy = (from.y + to.y) / 2 + perpY;
-  const path = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+
+  let path: string;
+  if (!curveDir || curveDir === "straight") {
+    // Straight cut - direct line
+    path = `M ${from.x} ${from.y} L ${to.x} ${to.y}`;
+  } else {
+    // Curved cut - realistic basketball arc
+    // Use different curve intensities based on distance
+    const curveFactor = Math.min(len * 0.3, 15);
+    const offset = curveDir === "left" ? -curveFactor : curveFactor;
+    const perpX = (-dy / len) * offset;
+    const perpY = (dx / len) * offset;
+    const cx = (from.x + to.x) / 2 + perpX;
+    const cy = (from.y + to.y) / 2 + perpY;
+    path = `M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`;
+  }
   return (
-    <path d={path} fill="none" stroke="#4a3525" strokeWidth="1.0" opacity="0.85" markerEnd="url(#arrowHead)" />
+    <path d={path} fill="none" stroke={LINE_COLOR} strokeWidth={LINE_WIDTH}
+      opacity={LINE_OPACITY} markerEnd="url(#arrowHead)" />
   );
 }
 
-function ScreenLine({ from, to }: { from: Position; to: Position }) {
+// Screen line: line to position + perpendicular bar showing screen orientation
+function ScreenLine({ from, to, angle }: { from: Position; to: Position; angle?: number }) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 0.1) return null;
-  const barLen = 3.5;
-  const perpX = (-dy / len) * barLen;
-  const perpY = (dx / len) * barLen;
+
+  const barLen = 3.0;
+
+  // Bar orientation: use screenAngle if provided, otherwise perpendicular to movement
+  let barDx: number, barDy: number;
+  if (angle !== undefined) {
+    const rad = (angle * Math.PI) / 180;
+    barDx = Math.cos(rad) * barLen;
+    barDy = -Math.sin(rad) * barLen; // SVG y is inverted
+  } else {
+    // Default: perpendicular to movement direction
+    barDx = (-dy / len) * barLen;
+    barDy = (dx / len) * barLen;
+  }
+
   return (
     <>
-      <line x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke="#4a3525" strokeWidth="1.0" opacity="0.85" />
+      <line x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+        stroke={LINE_COLOR} strokeWidth={LINE_WIDTH} opacity={LINE_OPACITY} />
       <line
-        x1={to.x + perpX} y1={to.y + perpY}
-        x2={to.x - perpX} y2={to.y - perpY}
-        stroke="#4a3525" strokeWidth="1.8" opacity="0.85"
+        x1={to.x + barDx} y1={to.y + barDy}
+        x2={to.x - barDx} y2={to.y - barDy}
+        stroke={LINE_COLOR} strokeWidth={LINE_WIDTH * 2.5} opacity={LINE_OPACITY}
+        strokeLinecap="round"
       />
     </>
   );
 }
 
-function DribbleZigzag({ from, to }: { from: Position; to: Position }) {
+// Dribble zigzag: wavy line for ball handler movement
+function DribbleZigzag({ from, to, curveDir }: { from: Position; to: Position; curveDir?: "left" | "right" | "straight" }) {
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const len = Math.sqrt(dx * dx + dy * dy);
   if (len < 0.1) return null;
-  const numZags = Math.max(4, Math.round(len / 6));
-  const zagSize = 2.2;
+
+  // Zigzag parameters - tight consistent waves
+  const numZags = Math.max(3, Math.round(len / 5));
+  const zagSize = 1.5;
   const nx = dx / len;
   const ny = dy / len;
   const px = -ny;
   const py = nx;
+
+  // If curved, apply a gentle overall curve to the zigzag path
   let path = `M ${from.x} ${from.y}`;
   for (let i = 1; i <= numZags; i++) {
     const t = i / numZags;
-    const bx = from.x + dx * t;
-    const by = from.y + dy * t;
+    let bx = from.x + dx * t;
+    let by = from.y + dy * t;
+
+    // Apply curve offset if specified
+    if (curveDir && curveDir !== "straight") {
+      const curveFactor = Math.sin(t * Math.PI) * len * 0.15;
+      const curveOffset = curveDir === "left" ? -curveFactor : curveFactor;
+      bx += px * curveOffset;
+      by += py * curveOffset;
+    }
+
     if (i < numZags) {
       const sign = i % 2 === 0 ? 1 : -1;
       path += ` L ${bx + px * zagSize * sign} ${by + py * zagSize * sign}`;
@@ -105,26 +151,29 @@ function DribbleZigzag({ from, to }: { from: Position; to: Position }) {
       path += ` L ${bx} ${by}`;
     }
   }
-  return <path d={path} fill="none" stroke="#4a3525" strokeWidth="1.0" opacity="0.85" />;
+  return <path d={path} fill="none" stroke={LINE_COLOR} strokeWidth={LINE_WIDTH}
+    opacity={LINE_OPACITY} />;
 }
 
+// Pass dotted line: dashed line with arrow for passing
 function PassDotted({ from, to }: { from: Position; to: Position }) {
   return (
     <line
       x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-      stroke="#4a3525" strokeWidth="0.9" strokeDasharray="2,1.5"
-      opacity="0.85" markerEnd="url(#arrowHead)"
+      stroke={LINE_COLOR} strokeWidth={LINE_WIDTH} strokeDasharray="1.5,1.2"
+      opacity={LINE_OPACITY} markerEnd="url(#arrowHead)"
     />
   );
 }
 
-function MovementLine({ from, to, moveType, curveDirection }: {
-  from: Position; to: Position; moveType: MoveType; curveDirection?: "left" | "right";
+function MovementLine({ from, to, moveType, curveDirection, screenAngle }: {
+  from: Position; to: Position; moveType: MoveType;
+  curveDirection?: "left" | "right" | "straight"; screenAngle?: number;
 }) {
   switch (moveType) {
     case "cut": return <CutArrow from={from} to={to} curveDir={curveDirection} />;
-    case "screen": return <ScreenLine from={from} to={to} />;
-    case "dribble": return <DribbleZigzag from={from} to={to} />;
+    case "screen": return <ScreenLine from={from} to={to} angle={screenAngle} />;
+    case "dribble": return <DribbleZigzag from={from} to={to} curveDir={curveDirection} />;
     case "pass": return <PassDotted from={from} to={to} />;
   }
 }
@@ -139,8 +188,8 @@ function MovementLinesOverlay({ spots, targetPos }: { spots: AnswerSpot[]; targe
       style={{ zIndex: 18 }}
     >
       <defs>
-        <marker id="arrowHead" markerWidth="5" markerHeight="4" refX="4" refY="2" orient="auto">
-          <polygon points="0 0, 5 2, 0 4" fill="#4a3525" opacity="0.85" />
+        <marker id="arrowHead" markerWidth="4" markerHeight="3" refX="3.5" refY="1.5" orient="auto">
+          <polygon points="0 0, 4 1.5, 0 3" fill={LINE_COLOR} opacity={LINE_OPACITY} />
         </marker>
       </defs>
       {spots.map((spot) => (
@@ -150,6 +199,7 @@ function MovementLinesOverlay({ spots, targetPos }: { spots: AnswerSpot[]; targe
           to={spot.position}
           moveType={spot.moveType}
           curveDirection={spot.curveDirection}
+          screenAngle={spot.screenAngle}
         />
       ))}
     </svg>
